@@ -16,7 +16,7 @@ class Nodo(object):
         self.image = None
         self.header = None 
         self.br = CvBridge()
-        self.pub_img_set=False 
+        self.pub_img_set=True 
         self.image_topic=cfg.image_topic
 
         self.system = AFM(cfg)

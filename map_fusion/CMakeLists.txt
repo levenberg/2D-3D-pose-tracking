@@ -10,13 +10,12 @@ if (OPENMP_FOUND)
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${OpenMP_CXX_FLAGS}")
     set(CMAKE_C_FLAGS   "${CMAKE_C_FLAGS}   ${OpenMP_C_FLAGS}")
 endif()
-find_package(PCL 1.8 REQUIRED)
-include_directories(${PCL_INCLUDE_DIRS})
 
 set(cv_bridge_DIR "/usr/local/share/cv_bridge/cmake")
 find_package(catkin REQUIRED COMPONENTS
     roscpp
     tf
+    pcl_ros
     cv_bridge
     camera_model
     afm

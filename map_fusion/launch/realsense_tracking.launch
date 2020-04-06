@@ -1,19 +1,19 @@
 <launch>
 
 <!-- corridors  nsh  smith-->
-    <arg name="data_path" default = "smith" />
-    <arg name="cloud_name"  default="$(find map_fusion)/config/realsense/$(arg data_path)/pt.ply"/>
+    <arg name="data_path" default = "corridors" />
     <arg name="config_file" default="$(find map_fusion)/config/realsense/realsense.yaml" />
     <arg name="line3d_file" default="$(find map_fusion)/config/realsense/$(arg data_path)/line_3d.txt" />
 
     <node name="tracking_node" pkg="map_fusion" type="window_tracking_node" output="screen">
+        <param name="cloud_name"  type="string" value="$(find map_fusion)/config/realsense/$(arg data_path)/pointcloud.ply"/>
         <param name="config_file" type="string" value="$(arg config_file)" />
         <param name="lines_map" type="string" value="$(arg line3d_file)" />
         <!--remap from="~estimated_odometry" to="/vins_estimator/odometry" /> -->
     </node>
     
     <node name="realsense_d435i_publisher" pkg="initialization_publisher" type="realsense_d435i_publisher" output="screen">
-        <param name="cloud_name" type="string" value="$(arg cloud_name)" />
+        <param name="cloud_name"  type="string" value="$(find map_fusion)/config/realsense/$(arg data_path)/pt.ply"/>
         <param name="config_file" type="string" value="$(arg config_file)" />
         <remap from="~estimated_odometry" to="/vins_estimator/odometry" />
     </node> 

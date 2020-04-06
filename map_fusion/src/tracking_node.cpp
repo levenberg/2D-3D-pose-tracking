@@ -6,13 +6,13 @@
 
 bool cloud_fusion = true;
 std::string IMAGE_TOPIC;
-vector<Vector6d> lines3d_map; 
 Eigen::Matrix3d Ori_R;
 Eigen::Vector3d Ori_T;
 
 queue<nav_msgs::Odometry::ConstPtr> pose_buf;
 queue<sensor_msgs::ImageConstPtr> image_buf;
 queue<afm::lines2d::ConstPtr> afmline_buf;
+queue<sensor_msgs::PointCloudConstPtr> point_buf;
 std::mutex m_buf;
 std::mutex m_process;
 
@@ -20,33 +20,28 @@ ros::Publisher pub_godom, pub_pose_visual;
 ros::Publisher pub_featimg, pub_matches;
 ros::Publisher pub_path;
 nav_msgs::Path path;
-std::string config_file;
+ros::Publisher pub_pointclouds;
 
 estimator Estimator;
-CameraPoseVisualization cameraposevisual(0, 1, 0, 1);
+CameraPoseVisualization cameraposevisual(0, 0, 0, 1);
 bool valid_pose=false;
 bool show_feat=false;
 void readParameters(ros::NodeHandle &n)
 {
-    string line3d_name,fline;
-    n.param("lines_map", line3d_name, std::string(""));
-    ifstream in(line3d_name);
-    while(std::getline(in,fline))
-    {
-        std::istringstream iss(fline);
-        Vector6d line3d;
-        iss>>line3d[0]>>line3d[1]>>line3d[2]>>line3d[3]>>line3d[4]>>line3d[5];
-        lines3d_map.push_back(line3d);
-    }
+    string config_file, line3d_name, cloud_name;
 
-    n.getParam("config_file", config_file);
+    n.param("lines_map", line3d_name, std::string(""));
+    n.param("cloud_name", cloud_name, std::string(""));
+    n.param("config_file", config_file, std::string(""));
+    Estimator.setParameters(config_file, line3d_name, cloud_name);
+
     cv::FileStorage fsSettings(config_file, cv::FileStorage::READ);
     if (!fsSettings.isOpened())
     {
         std::cerr << "ERROR: Wrong path to settings" << std::endl;
     }
 
-    Estimator.setParameters(config_file, lines3d_map);
+    
     fsSettings["image_topic"] >> IMAGE_TOPIC;  
     fsSettings["show"]>> show_feat;
     
@@ -71,6 +66,16 @@ void image_callback(const sensor_msgs::ImageConstPtr &image_msg)
     m_buf.unlock();
     //printf(" image time %f \n", image_msg->header.stamp.toSec());
     
+}
+
+void point_callback(const sensor_msgs::PointCloudConstPtr &point_msg)
+{
+    //ROS_INFO("point_callback!");
+    if (!cloud_fusion)
+        return;
+    m_buf.lock();
+    point_buf.push(point_msg);
+    m_buf.unlock();
 }
 void afm_line_callback(const afm::lines2d::ConstPtr &afm_line_msg)
 {
@@ -195,7 +200,7 @@ void pubFeatureimg(const std_msgs::Header &header)
     pub_matches.publish(msg2);
 
 }
-void process()
+void process2d3d()
 {
     if (!cloud_fusion)
         return;
@@ -286,7 +291,92 @@ void process()
         }
     }
 }
+void pubGpointcloud(const std_msgs::Header &header, sensor_msgs::PointCloudConstPtr &_point_msg)
+{
+    sensor_msgs::PointCloud point_cloud;
+    point_cloud.header = header;
+    int indx=Estimator.frame_count;
+    for (unsigned int i = 0; i < _point_msg->points.size(); i++)
+    {
+        Eigen::Vector3d pt_gb(_point_msg->points[i].x, _point_msg->points[i].y, _point_msg->points[i].z);
+        Eigen::Vector3d pt_b = Estimator.vio_R[indx].transpose() * (pt_gb - Estimator.vio_T[indx]);
+        // transfom local point clouds from body frame to world frame.
+        Eigen::Vector3d pt_w = Estimator.R_w[indx] * pt_b + Estimator.T_w[indx];
+        geometry_msgs::Point32 p;
+        p.x = pt_w(0);
+        p.y = pt_w(1);
+        p.z = pt_w(2);
+        point_cloud.points.push_back(p);
+    }
+    pub_pointclouds.publish(point_cloud);
+}
+void process3d3d()
+{
+    if (!cloud_fusion)
+        return;
+    while (true)
+    {
+        sensor_msgs::ImageConstPtr image_msg = NULL;
+        sensor_msgs::PointCloudConstPtr point_msg = NULL;
+        nav_msgs::Odometry::ConstPtr pose_msg = NULL;
+        // find out the latest image msg
+        m_buf.lock();
 
+        if (!image_buf.empty() && !point_buf.empty() && !pose_buf.empty())
+        {
+            if (image_buf.front()->header.stamp.toSec() > pose_buf.front()->header.stamp.toSec())
+            {
+                pose_buf.pop();
+                printf("throw pose at beginning\n");
+            }
+            else if (image_buf.front()->header.stamp.toSec() > point_buf.front()->header.stamp.toSec())
+            {
+                pose_buf.pop();
+                printf("throw point at beginning\n");
+            }
+            else if (image_buf.back()->header.stamp.toSec() >= pose_buf.front()->header.stamp.toSec() &&
+                     point_buf.back()->header.stamp.toSec() >= pose_buf.front()->header.stamp.toSec())
+            {
+                pose_msg = pose_buf.front();
+                pose_buf.pop();
+                while (!pose_buf.empty())
+                {
+                    pose_buf.pop();
+                }
+                while (image_buf.front()->header.stamp.toSec() < pose_msg->header.stamp.toSec())
+                    image_buf.pop();
+                image_msg = image_buf.front();
+                image_buf.pop();
+
+                while (point_buf.front()->header.stamp.toSec() < pose_msg->header.stamp.toSec())
+                    point_buf.pop();
+                point_msg = point_buf.front();
+                point_buf.pop();
+            }
+        }
+        m_buf.unlock();
+        if (pose_msg != NULL && valid_pose)
+        {
+            // printf(" point time %f \n", point_msg->header.stamp.toSec());
+            // printf(" image time %f \n", image_msg->header.stamp.toSec());
+            // printf(" pose time %f \n", pose_msg->header.stamp.toSec());
+
+            Vector3d vio_T = Vector3d(pose_msg->pose.pose.position.x,
+                                      pose_msg->pose.pose.position.y,
+                                      pose_msg->pose.pose.position.z);
+            Matrix3d vio_R = Quaterniond(pose_msg->pose.pose.orientation.w,
+                                         pose_msg->pose.pose.orientation.x,
+                                         pose_msg->pose.pose.orientation.y,
+                                         pose_msg->pose.pose.orientation.z)
+                                 .normalized()
+                                 .toRotationMatrix();
+
+            Estimator.processPoints(pose_msg->header.stamp.toSec(), vio_T, vio_R, point_msg);
+            pubGodometry(pose_msg->header);
+            pubGpointcloud(pose_msg->header, point_msg);
+        }
+    }
+}
 int main(int argc, char **argv)
 {
     ros::init(argc, argv, "map_fusion");
@@ -298,12 +388,16 @@ int main(int argc, char **argv)
     pub_featimg = n.advertise<sensor_msgs::Image>("/tracking_node/feat_img",1000);
     pub_matches = n.advertise<sensor_msgs::Image>("/tracking_node/feat_matches",1000);
     pub_pose_visual = n.advertise<visualization_msgs::MarkerArray>("/tracking_node/pose_visual", 1000);
+    pub_pointclouds = n.advertise<sensor_msgs::PointCloud>("/tracking_node/point_cloud", 1000);
     ros::Subscriber sub_vio = n.subscribe("/vins_estimator/odometry", 1000, vio_callback);
     ros::Subscriber sub_image = n.subscribe(IMAGE_TOPIC, 1000, image_callback);
     ros::Subscriber sub_lineafm=n.subscribe("/Lines2d", 1000, afm_line_callback);
+    ros::Subscriber sub_point = n.subscribe("/vins_estimator/point_cloud", 1000, point_callback); // 
     ros::Subscriber sub_basepose=n.subscribe("/benchmark_publisher/base_pose", 1000, base_pose_callback);
-    std::thread joint_process;
-    joint_process = std::thread(process);
+    // std::thread joint_process;
+    // joint_process = std::thread(process2d3d);
+    std::thread joint_process3d;
+    joint_process3d = std::thread(process3d3d);
     // ros::Rate r(20);
     ros::spin();
 }

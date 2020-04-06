@@ -6,6 +6,7 @@
     <arg name="config_file" default="$(find map_fusion)/config/$(arg sequence_name)/sensor.yaml" />
 
     <node name="tracking_node" pkg="map_fusion" type="window_tracking_node" output="screen">
+        <param name="cloud_name" type="string" value="$(arg cloud_name)" />
         <param name="config_file" type="string" value="$(arg config_file)" />
         <param name="lines_map" type="string" value="$(find map_fusion)/config/$(arg sequence_name)/line_3d.txt" />
     </node>

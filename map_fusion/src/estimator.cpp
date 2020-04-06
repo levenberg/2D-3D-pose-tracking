@@ -2,21 +2,89 @@
 #include <omp.h>
 #include <stdio.h>
 std::string TRACK_RESULT_PATH;
+using namespace pcl;
 
-void estimator::setParameters(const string &calib_file, vector<Vector6d> &_lines3d)
+bool computePointNorm(const pcl::PointCloud<pcl::PointXYZ> &rawPoints,
+					  pcl::PointCloud<pcl::PointNormal> &normPoints)
 {
-	frame_count=-1;
-	index=0;
-	solver_flag=INITIAL;
-	lines3d_map= _lines3d;
+	const float resol = 0.1;
+
+	pcl::PointCloud<pcl::PointXYZ> sparsePoints;
+	VoxelGrid<pcl::PointXYZ> vgf;
+	vgf.setInputCloud(rawPoints.makeShared());
+	vgf.setLeafSize(resol, resol, resol);
+	vgf.filter(sparsePoints);
+
+	pcl::PointCloud<pcl::PointXYZ> cleanPoints;
+	StatisticalOutlierRemoval<pcl::PointXYZ> sor;
+	sor.setInputCloud(sparsePoints.makeShared());
+	sor.setMeanK(20);
+	sor.setStddevMulThresh(1.0);
+	sor.filter(cleanPoints);
+	// cleanCloudWithPCA(sparsePoints, cleanPoints, 0.2, 0.1);
+
+	pcl::PointCloud<pcl::PointNormal> mlsPoints;
+	pcl::search::KdTree<pcl::PointXYZ>::Ptr tree(new pcl::search::KdTree<pcl::PointXYZ>);
+	pcl::MovingLeastSquares<pcl::PointXYZ, pcl::PointNormal> mls;
+	mls.setComputeNormals(true);
+	mls.setInputCloud(cleanPoints.makeShared());
+	mls.setPolynomialOrder(2);
+	mls.setSearchMethod(tree);
+	mls.setSearchRadius(0.2);
+	// mls.setSqrGaussParam(0.04);
+	// mls.setPointDensity(20);
+	mls.process(mlsPoints);
+
+	normPoints.clear();
+	for (auto &p : mlsPoints)
+	{
+		if (p.curvature < 0.05)
+		{
+			normPoints.push_back(std::move(p));
+		}
+	}
+	return true;
+}
+
+void estimator::setParameters(const string &calib_file, const string &lines3d_file, const string &cloud_file)
+{
+	frame_count = -1;
+	index = 0;
+	solver_flag = INITIAL;
+
+	string fline;
+	ifstream in(lines3d_file);
+	while (std::getline(in, fline))
+	{
+		std::istringstream iss(fline);
+		Vector6d line3d;
+		iss >> line3d[0] >> line3d[1] >> line3d[2] >> line3d[3] >> line3d[4] >> line3d[5];
+		lines3d_map.push_back(line3d);
+	}
+	ROS_INFO("loading 3D line segments ... %d ... finished", lines3d_map.size());
+
+	pcl::PointCloud<pcl::PointXYZ>::Ptr cloud(new pcl::PointCloud<pcl::PointXYZ>);
+	pcl::io::loadPLYFile(cloud_file, *cloud);
+	if (cloud->points.size() == 0)
+	{
+		ROS_WARN("can't load point clouds; wrong path");
+		return;
+	}
+	else
+	{
+		ROS_INFO("loading LIDAR maps, %d points", int(cloud->points.size()));
+	}
+
+	computePointNorm(*cloud, normPoints);
+	kdtree.setInputCloud(normPoints.makeShared());
+
 	cv::FileStorage fsSettings(calib_file, cv::FileStorage::READ);
 	cv::FileNode ns = fsSettings["projection_parameters"];
-    double m_fx = static_cast<double>(ns["fx"]);
-    double m_fy = static_cast<double>(ns["fy"]);
+	double m_fx = static_cast<double>(ns["fx"]);
+	double m_fy = static_cast<double>(ns["fy"]);
 	double m_cx = static_cast<double>(ns["cx"]);
 	double m_cy = static_cast<double>(ns["cy"]);
 	cv_CMatrix = (cv::Mat_<double>(3, 3) << m_fx, 0, m_cx, 0, m_fy, m_cy, 0, 0, 1);
-	
 
 	ns = fsSettings["distortion_parameters"];
 	double m_k1 = static_cast<double>(ns["k1"]);
@@ -25,26 +93,26 @@ void estimator::setParameters(const string &calib_file, vector<Vector6d> &_lines
 	double m_p2 = static_cast<double>(ns["p2"]);
 	cv_dist = (cv::Mat_<double>(1, 4) << m_k1, m_k2, m_p1, m_p2);
 
-	int width=static_cast<int>(fsSettings["width"]);
-	int height=static_cast<int>(fsSettings["height"]);
-	new_Matrix=getOptimalNewCameraMatrix(cv_CMatrix, cv_dist, cv::Size(width, height), 0, cv::Size(width, height));
-	
+	int width = static_cast<int>(fsSettings["width"]);
+	int height = static_cast<int>(fsSettings["height"]);
+	new_Matrix = getOptimalNewCameraMatrix(cv_CMatrix, cv_dist, cv::Size(width, height), 0, cv::Size(width, height));
+
 	cv::cv2eigen(cv_CMatrix, K);
 	//camera frame to body frame
-    cv::Mat cv_b2c_R, cv_b2c_T;
-    fsSettings["extrinsicRotation"] >> cv_b2c_R;
-    fsSettings["extrinsicTranslation"] >> cv_b2c_T;
-    cv::cv2eigen(cv_b2c_R, b2c_R);
-    cv::cv2eigen(cv_b2c_T, b2c_T);
+	cv::Mat cv_b2c_R, cv_b2c_T;
+	fsSettings["extrinsicRotation"] >> cv_b2c_R;
+	fsSettings["extrinsicTranslation"] >> cv_b2c_T;
+	cv::cv2eigen(cv_b2c_R, b2c_R);
+	cv::cv2eigen(cv_b2c_T, b2c_T);
 
 	m_camera = CameraFactory::instance()->generateCameraFromYamlFile(calib_file);
 
 	//optimization parameters
-	iterations= static_cast<int>(fsSettings["iterations"]);
-	per_inliers= static_cast<int>(fsSettings["per_inliers"]);
-	threshold= static_cast<double>(fsSettings["threshold"]);
-	lamda= static_cast<double>(fsSettings["lamda"]);
-	save=static_cast<int>(fsSettings["savefile"]);
+	iterations = static_cast<int>(fsSettings["iterations"]);
+	per_inliers = static_cast<int>(fsSettings["per_inliers"]);
+	threshold = static_cast<double>(fsSettings["threshold"]);
+	lamda = static_cast<double>(fsSettings["lamda"]);
+	save = static_cast<int>(fsSettings["savefile"]);
 
 	ROS_INFO("Finishing setting params for sliding window...");
 }
@@ -52,7 +120,7 @@ void estimator::setParameters(const string &calib_file, vector<Vector6d> &_lines
 void estimator::loadExtrinsictf(Vector3d &_w2gb_T, Matrix3d &_w2gb_R)
 {
 	w2gb_T = _w2gb_T;
-	w2gb_R = _w2gb_R; 
+	w2gb_R = _w2gb_R;
 	ROS_INFO("Finishing load extrinsic...");
 }
 
@@ -62,20 +130,20 @@ void estimator::processImage(double _time_stamp, Vector3d &_vio_T, Matrix3d &_vi
 	if (frame_count < WINDOW_SIZE)
 		frame_count++;
 	time_stamp[frame_count] = _time_stamp;
-	vio_T[frame_count]=_vio_T;
+	vio_T[frame_count] = _vio_T;
 	vio_R[frame_count] = _vio_R;
-	image[frame_count]= _image.clone();
-	lines2d[frame_count]= _lines2d;
-	undist_lines2d[frame_count]=undistortedPoints(_lines2d);
+	image[frame_count] = _image.clone();
+	lines2d[frame_count] = _lines2d;
+	undist_lines2d[frame_count] = undistortedPoints(_lines2d);
 	if (frame_count > 0)
-		{  //P(n-1)=delta_R*P(n)+delta_T
-			delta_R[frame_count - 1] = vio_R[frame_count-1] * vio_R[frame_count].transpose();
-			delta_T[frame_count - 1] = vio_T[frame_count-1] - delta_R[frame_count - 1] * vio_T[frame_count];
-		}
-	delta_R[frame_count]<<1,0,0,
-						  0,1,0,
-						  0,0,1;
-	delta_T[frame_count]<<0.0,0.0,0.0;
+	{ //P(n-1)=delta_R*P(n)+delta_T
+		delta_R[frame_count - 1] = vio_R[frame_count - 1] * vio_R[frame_count].transpose();
+		delta_T[frame_count - 1] = vio_T[frame_count - 1] - delta_R[frame_count - 1] * vio_T[frame_count];
+	}
+	delta_R[frame_count] << 1, 0, 0,
+		0, 1, 0,
+		0, 0, 1;
+	delta_T[frame_count] << 0.0, 0.0, 0.0;
 
 	if (solver_flag == INITIAL)
 	{
@@ -87,16 +155,16 @@ void estimator::processImage(double _time_stamp, Vector3d &_vio_T, Matrix3d &_vi
 		Vector3d tempTrans = -tempRot * T_w[frame_count] - b2c_R.transpose() * b2c_T;
 		matches2d3d[frame_count] = updatecorrespondence(lines3d[frame_count], undist_lines2d[frame_count], K, tempRot, tempTrans, lamda, threshold);
 		fuse_pose();
-		if (frame_count == WINDOW_SIZE-1 || WINDOW_SIZE==0)
+		if (frame_count == WINDOW_SIZE - 1 || WINDOW_SIZE == 0)
 		{
-			solver_flag = NON_LINEAR; 
+			solver_flag = NON_LINEAR;
 		}
-	} 
+	}
 	else
 	{
 		//predict current frame
-		R_w[frame_count]=delta_R[frame_count - 1].transpose()*R_w[frame_count - 1];
-        T_w[frame_count]=delta_R[frame_count - 1].transpose()*(T_w[frame_count-1]-delta_T[frame_count - 1]);
+		R_w[frame_count] = delta_R[frame_count - 1].transpose() * R_w[frame_count - 1];
+		T_w[frame_count] = delta_R[frame_count - 1].transpose() * (T_w[frame_count - 1] - delta_T[frame_count - 1]);
 		lines3d[frame_count] = updatemaplines_3d(T_w[frame_count], R_w[frame_count]);
 		Matrix3d tempRot = b2c_R.transpose() * R_w[frame_count].transpose();
 		Vector3d tempTrans = -tempRot * T_w[frame_count] - b2c_R.transpose() * b2c_T;
@@ -116,8 +184,128 @@ void estimator::processImage(double _time_stamp, Vector3d &_vio_T, Matrix3d &_vi
 		vector<pairsmatch> match1;
 		match1 = updatecorrespondence(lines3d[frame_count], undist_lines2d[frame_count], K, tempRot, tempTrans, lamda, threshold);
 		savelines_2d3d(true);
-		savematches(match1,index,delta_R[frame_count], delta_T[frame_count], false);
+		savematches(match1, index, delta_R[frame_count], delta_T[frame_count], false);
 	}
+}
+void estimator::processPoints(double _time_stamp, Vector3d &_vio_T, Matrix3d &_vio_R, sensor_msgs::PointCloudConstPtr &_point_msg)
+{
+	// if (frame_count < WINDOW_SIZE)
+	// 	frame_count++;
+	// time_stamp[frame_count] = _time_stamp;
+	// vio_T[frame_count] = _vio_T;
+	// vio_R[frame_count] = _vio_R;
+	// image[frame_count] = _image.clone();
+	// lines2d[frame_count] = _lines2d;
+	// undist_lines2d[frame_count] = undistortedPoints(_lines2d);
+	// if (frame_count > 0)
+	// { //P(n-1)=delta_R*P(n)+delta_T
+	// 	delta_R[frame_count - 1] = vio_R[frame_count - 1] * vio_R[frame_count].transpose();
+	// 	delta_T[frame_count - 1] = vio_T[frame_count - 1] - delta_R[frame_count - 1] * vio_T[frame_count];
+	// }
+	// delta_R[frame_count] << 1, 0, 0,
+	// 	0, 1, 0,
+	// 	0, 0, 1;
+	// delta_T[frame_count] << 0.0, 0.0, 0.0;
+
+	frame_count=0;
+	vio_T[frame_count] = _vio_T;
+	vio_R[frame_count] = _vio_R;
+	Eigen::Matrix3d updatedRot = _vio_R;
+	Eigen::Vector3d updatedTrans = _vio_T;
+	double squr_error_sum = 0, mean_error = 0;
+	double searchRadius=0.5;
+	//icp iterative update 3D correspondence
+	for (int iter = 0; iter < 1; iter++)
+	{
+		//obtain 3D correspondence based on current pose
+		vector<PointMatch> matches;
+		for (unsigned int i = 0; i < _point_msg->points.size(); i++)
+		{
+			vector<float> nearestDistance(1);
+			vector<int> pointIdx(1);
+			// this point cloud message is in global body frame/ related to the publish
+			Eigen::Vector3d pt_gb(_point_msg->points[i].x, _point_msg->points[i].y, _point_msg->points[i].z);
+			Eigen::Vector3d pt_b = _vio_R.transpose() * (pt_gb - _vio_T);
+
+			// transfom local point clouds from body frame to world frame.
+			Eigen::Vector3d pt_w = w2gb_R.transpose() * (updatedRot * pt_b + updatedTrans - w2gb_T);
+
+			cv::Point3d cv_pt(pt_w.x(), pt_w.y(), pt_w.z());
+			// localpoints3d.push_back(cv_pt);
+			pcl::PointNormal searchPoint;
+			searchPoint.x = pt_w[0];
+			searchPoint.y = pt_w[1];
+			searchPoint.z = pt_w[2];
+			int found = kdtree.nearestKSearch(searchPoint, 1, pointIdx, nearestDistance);
+			if (found > 0 && nearestDistance[0] < searchRadius * searchRadius)
+			{
+				Eigen::Vector3d pt(normPoints[pointIdx[0]].x, normPoints[pointIdx[0]].y, normPoints[pointIdx[0]].z);
+				Eigen::Vector3d nm(normPoints[pointIdx[0]].normal_x, normPoints[pointIdx[0]].normal_y, normPoints[pointIdx[0]].normal_z);
+				// transform world point to global body frame
+				Eigen::Vector3d pt_w2bg = w2gb_R * pt + w2gb_T;
+				Eigen::Vector3d tf_nm = w2gb_R * nm;
+
+				PointMatch match(pt_b, pt_w2bg, tf_nm);
+				matches.push_back(match);
+			}
+		}
+
+		//ceres optimization using 3D correspondences
+		ceres::Problem problem;
+		Eigen::Quaterniond updateQuat(updatedRot);
+		std::vector<double> ceres_rotation = std::vector<double>({updateQuat.w(), updateQuat.x(), updateQuat.y(), updateQuat.z()});
+		std::vector<double> ceres_translation = std::vector<double>({updatedTrans.x(), updatedTrans.y(), updatedTrans.z()});
+		ceres::LocalParameterization *quaternion_parameterization =
+			new ceres::QuaternionParameterization;
+		ceres::LossFunction *loss_func(new ceres::HuberLoss(0.5 * 0.5));
+
+		for (unsigned int i = 0; i < matches.size(); i++)
+		{
+			ceres::CostFunction *cost_function =
+				RegistrationError_icp::Create(matches[i].p, matches[i].q, matches[i].n);
+
+			problem.AddResidualBlock(
+				cost_function,
+				loss_func,
+				&(ceres_rotation[0]), //what is here
+				&(ceres_translation[0]));
+			problem.SetParameterization(&(ceres_rotation[0]), quaternion_parameterization);
+		}
+
+		ceres::Solver::Options options;
+		options.linear_solver_type = ceres::SPARSE_SCHUR;
+		options.minimizer_progress_to_stdout = false;
+		options.max_num_iterations = 30;
+		options.num_threads = 12;
+		// options.logging_type = SILENT;
+		ceres::Solver::Summary summary;
+		ceres::Solve(options, &problem, &summary);
+
+		// update pose
+		Eigen::Quaterniond q(ceres_rotation[0], ceres_rotation[1], ceres_rotation[2], ceres_rotation[3]);
+		Eigen::Vector3d t(ceres_translation[0], ceres_translation[1], ceres_translation[2]);
+		updatedRot = q.normalized().toRotationMatrix();
+		updatedTrans = t;
+		searchRadius = std::max(0.2, searchRadius * 0.9);
+
+		//calculate error after optimization
+		if (index < 0)
+		{
+			squr_error_sum = 0;
+			mean_error = 0;
+			for (size_t i = 0; i < matches.size(); i++)
+			{
+				Eigen::Vector3d up_pt_w = updatedRot * matches[i].p + updatedTrans;
+				squr_error_sum += abs(matches[i].n.transpose() * (up_pt_w - matches[i].q));
+			}
+			mean_error = sqrt(squr_error_sum / matches.size());
+			ROS_INFO("index:%d_%d, %d matching, after error: %f .", index, iter, (int)matches.size(), mean_error);
+			std::cout << summary.BriefReport() << "\n";
+		}
+	}
+	//update the final VIO results based on VIO R, T and optimization reuslts
+	R_w[frame_count] = updatedRot;
+	T_w[frame_count] = updatedTrans;
 }
 
 vector<line3d> estimator::updatemaplines_3d(Vector3d &_vio_T, Matrix3d &_vio_R)
@@ -138,18 +326,18 @@ vector<line3d> estimator::updatemaplines_3d(Vector3d &_vio_T, Matrix3d &_vio_R)
 
 		if (tf_start_pt[2] > 0)
 		{
-			double xx=K(0,0)*tf_start_pt[0]/tf_start_pt[2]+K(0,2);
-			double yy=K(1,0)*tf_start_pt[1]/tf_start_pt[2]+K(1,2);
-			if (xx*(xx+1-image[frame_count].cols) <= 0 && yy*(yy+1-image[frame_count].rows) <= 0)
-					start_flag = true;
+			double xx = K(0, 0) * tf_start_pt[0] / tf_start_pt[2] + K(0, 2);
+			double yy = K(1, 0) * tf_start_pt[1] / tf_start_pt[2] + K(1, 2);
+			if (xx * (xx + 1 - image[frame_count].cols) <= 0 && yy * (yy + 1 - image[frame_count].rows) <= 0)
+				start_flag = true;
 		}
 
 		if (tf_end_pt[2] > 0)
 		{
-			double xx=K(0,0)*tf_end_pt[0]/tf_end_pt[2]+K(0,2);
-			double yy=K(1,0)*tf_end_pt[1]/tf_end_pt[2]+K(1,2);
-			if (xx*(xx+1-image[frame_count].cols) <= 0 && yy*(yy+1-image[frame_count].rows) <= 0)
-					end_flag = true;
+			double xx = K(0, 0) * tf_end_pt[0] / tf_end_pt[2] + K(0, 2);
+			double yy = K(1, 0) * tf_end_pt[1] / tf_end_pt[2] + K(1, 2);
+			if (xx * (xx + 1 - image[frame_count].cols) <= 0 && yy * (yy + 1 - image[frame_count].rows) <= 0)
+				end_flag = true;
 		}
 
 		if (start_flag && end_flag) // both end points are in FOV
@@ -164,7 +352,7 @@ vector<line3d> estimator::updatemaplines_3d(Vector3d &_vio_T, Matrix3d &_vio_R)
 		{
 			Eigen::Vector3d dirvec = tf_end_pt - tf_start_pt;
 			double t = 0.1;
-			bool inFOV=true;
+			bool inFOV = true;
 			while (inFOV)
 			{
 				Eigen::Vector3d temp_tf_end_pt = tf_start_pt + t * dirvec;
@@ -175,13 +363,13 @@ vector<line3d> estimator::updatemaplines_3d(Vector3d &_vio_T, Matrix3d &_vio_R)
 					if (xx * (xx + 1 - image[frame_count].cols) <= 0 && yy * (yy + 1 - image[frame_count].rows) <= 0)
 						t += 0.1;
 					else
-						inFOV=false;
+						inFOV = false;
 				}
 				else
-					inFOV=false;	
+					inFOV = false;
 			}
 
-			end_pt=start_pt+(t-0.1)*(end_pt-start_pt);
+			end_pt = start_pt + (t - 0.1) * (end_pt - start_pt);
 			Vector3d pt1 = w2gb_R * start_pt + w2gb_T;
 			Vector3d pt2 = w2gb_R * end_pt + w2gb_T;
 			line3d l3d(pt1, pt2);
@@ -189,7 +377,7 @@ vector<line3d> estimator::updatemaplines_3d(Vector3d &_vio_T, Matrix3d &_vio_R)
 		}
 		else if (end_flag) // only end point is in FOV
 		{
-			Eigen::Vector3d dirvec = tf_start_pt- tf_end_pt;
+			Eigen::Vector3d dirvec = tf_start_pt - tf_end_pt;
 			double t = 0.1;
 			bool inFOV = true;
 			while (inFOV)
@@ -208,7 +396,7 @@ vector<line3d> estimator::updatemaplines_3d(Vector3d &_vio_T, Matrix3d &_vio_R)
 					inFOV = false;
 			}
 
-			start_pt = end_pt + (t - 0.1)*(start_pt - end_pt);
+			start_pt = end_pt + (t - 0.1) * (start_pt - end_pt);
 			Vector3d pt1 = w2gb_R * start_pt + w2gb_T;
 			Vector3d pt2 = w2gb_R * end_pt + w2gb_T;
 			line3d l3d(pt1, pt2);
@@ -238,7 +426,7 @@ void estimator::showUndistortion(const string &name)
 			//printf("%f,%f->%f,%f,%f\n)\n", a.x(), a.y(), b.x(), b.y(), b.z());
 		}
 	for (int i = 0; i < int(undistortedp.size()); i++)
-	{ 
+	{
 		cv::Mat pp(3, 1, CV_32FC1);
 		pp.at<float>(0, 0) = undistortedp[i].x() * FOCAL_LENGTH + COL / 2;
 		pp.at<float>(1, 0) = undistortedp[i].y() * FOCAL_LENGTH + ROW / 2;
@@ -283,14 +471,14 @@ vector<line2d> estimator::undistortedPoints(vector<line2d> &_lines2d)
 void estimator::jointoptimization()
 {
 
-	Matrix3d delta_R_n[frame_count+1];
-	Vector3d delta_T_n[frame_count+1];
-	delta_R_n[frame_count]=delta_R[frame_count];
-	delta_T_n[frame_count]=delta_T[frame_count];
-	
+	Matrix3d delta_R_n[frame_count + 1];
+	Vector3d delta_T_n[frame_count + 1];
+	delta_R_n[frame_count] = delta_R[frame_count];
+	delta_T_n[frame_count] = delta_T[frame_count];
+
 	savelines_2d3d(save);
-	double theta=lamda;
-	double reject_threshod=threshold;
+	double theta = lamda;
+	double reject_threshod = threshold;
 	for (int iter = 0; iter < iterations; iter++)
 	{
 		for (int nframe = frame_count - 1; nframe >= 0; nframe--)
@@ -328,7 +516,7 @@ void estimator::jointoptimization()
 			new ceres::QuaternionParameterization;
 		ceres::LossFunction *loss_func(new ceres::HuberLoss(3.0));
 
-		for (int nframe = frame_count; nframe >=0; nframe--)
+		for (int nframe = frame_count; nframe >= 0; nframe--)
 			for (unsigned int i = 0; i < matches2d3d[nframe].size(); i++)
 			{
 				Vector3d param2d(matches2d3d[nframe][i].line2dt.A / matches2d3d[nframe][i].line2dt.A2B2,
@@ -340,14 +528,14 @@ void estimator::jointoptimization()
 				problem.AddResidualBlock(
 					cost_function,
 					loss_func,
-					&(ceres_rotation[0]), 
+					&(ceres_rotation[0]),
 					&(ceres_translation[0]));
 				problem.SetParameterization(&(ceres_rotation[0]), quaternion_parameterization);
 			}
 
 		ceres::Solver::Options options;
 		options.linear_solver_type = ceres::SPARSE_SCHUR;
-		options.minimizer_progress_to_stdout = false; 
+		options.minimizer_progress_to_stdout = false;
 		options.max_num_iterations = 30;
 		options.num_threads = 12;
 		// options.logging_type = SILENT;
@@ -364,12 +552,11 @@ void estimator::jointoptimization()
 			savematches(matches2d3d[frame_count], frame_count, delta_R_n[frame_count], delta_T_n[frame_count], true);
 		}
 		//more restrict threshold for inlier correspondences
-		theta=0.9*theta;
-		reject_threshod=0.9*reject_threshod;
+		theta = 0.9 * theta;
+		reject_threshod = 0.9 * reject_threshod;
 		Matrix3d tempRot = b2c_R.transpose() * R_w[frame_count].transpose();
 		Vector3d tempTrans = -tempRot * T_w[frame_count] - b2c_R.transpose() * b2c_T;
 		matches2d3d[frame_count] = updatecorrespondence(lines3d[frame_count], undist_lines2d[frame_count], K, tempRot, tempTrans, theta, reject_threshod);
-
 	}
 	fuse_pose();
 }
@@ -377,13 +564,13 @@ void estimator::jointoptimization()
 void estimator::fuse_pose()
 {
 	Eigen::Matrix3d deR = R_w[frame_count - 1] * R_w[frame_count].transpose();
-	Eigen::Vector3d deT = T_w[frame_count - 1]- deR*T_w[frame_count];
-	
-	if ((deT-delta_T[frame_count - 1]).norm()>0.8)
+	Eigen::Vector3d deT = T_w[frame_count - 1] - deR * T_w[frame_count];
+
+	if ((deT - delta_T[frame_count - 1]).norm() > 0.8)
 	{
 		ROS_WARN("correspondence error...");
-		R_w[frame_count]=delta_R[frame_count - 1].transpose()*R_w[frame_count - 1];
-        T_w[frame_count]=delta_R[frame_count - 1].transpose()*(T_w[frame_count-1]-delta_T[frame_count - 1]);
+		R_w[frame_count] = delta_R[frame_count - 1].transpose() * R_w[frame_count - 1];
+		T_w[frame_count] = delta_R[frame_count - 1].transpose() * (T_w[frame_count - 1] - delta_T[frame_count - 1]);
 	}
 	// write result to file
 	ofstream foutC(TRACK_RESULT_PATH, ios::app);
@@ -407,23 +594,23 @@ void estimator::slideWindow()
 	// cout<<"frame_count="<<frame_count<<endl;
 	for (size_t i = 0; i < WINDOW_SIZE; i++)
 	{
-		time_stamp[i] = time_stamp[i+1];
-		vio_T[i] = vio_T[i+1];
-		vio_R[i] = vio_R[i+1];
-		delta_R[i]= delta_R[i+1];
-		delta_T[i]= delta_T[i+1];
-		T_w[i] = T_w[i+1];
-		R_w[i] =R_w[i+1];
+		time_stamp[i] = time_stamp[i + 1];
+		vio_T[i] = vio_T[i + 1];
+		vio_R[i] = vio_R[i + 1];
+		delta_R[i] = delta_R[i + 1];
+		delta_T[i] = delta_T[i + 1];
+		T_w[i] = T_w[i + 1];
+		R_w[i] = R_w[i + 1];
 		//image[i] = image[i+1];
 		//lines2d[i] = lines2d[i+1];
-		undist_lines2d[i] = undist_lines2d[i+1];
-		lines3d[i] = lines3d[i+1];
-		matches2d3d[i]=matches2d3d[i+1];
+		undist_lines2d[i] = undist_lines2d[i + 1];
+		lines3d[i] = lines3d[i + 1];
+		matches2d3d[i] = matches2d3d[i + 1];
 	}
 }
 
 void estimator::savematches(const vector<pairsmatch> &matches, int &frame,
-							 Matrix3d &delta_R_i, Vector3d &delta_t_i, const bool &optimized)
+							Matrix3d &delta_R_i, Vector3d &delta_t_i, const bool &optimized)
 {
 	ROS_INFO("Number of matches: %d", int(matches.size()));
 	char filename2d[100];
@@ -447,11 +634,11 @@ void estimator::savematches(const vector<pairsmatch> &matches, int &frame,
 	Vector3d T_w_n = delta_R_i * T_w[frame_count] + delta_t_i;
 	Matrix3d R = b2c_R.transpose() * R_w_n.transpose();
 	Vector3d t = -R * T_w_n - b2c_R.transpose() * b2c_T;
-	double sum_error=0;
+	double sum_error = 0;
 	for (size_t i = 0; i < matches.size(); i++)
 	{
-		line3d l3d=matches[i].line3dt;
-		pairsmatch match(matches[i].index, matches[i].line2dt, l3d.transform3D(R,t));
+		line3d l3d = matches[i].line3dt;
+		pairsmatch match(matches[i].index, matches[i].line2dt, l3d.transform3D(R, t));
 		auto start_pt2d = match.line2dt.ptstart;
 		out2d << start_pt2d.x() << " " << start_pt2d.y() << " ";
 		auto end_pt2d = match.line2dt.ptend;
@@ -466,24 +653,24 @@ void estimator::savematches(const vector<pairsmatch> &matches, int &frame,
 		out3d << match.distance.x() << " " << match.distance.y() << " " << match.distance.z();
 		out3d << "\n";
 
-		sum_error+=(match.calcEulerDist(K, 0.2)).x();
+		sum_error += (match.calcEulerDist(K, 0.2)).x();
 	}
 
 	out2d.close();
 	out3d.close();
-	if(optimized)
+	if (optimized)
 	{
 		ROS_INFO("after sum: %f, mean: %f", sum_error, sum_error / matches.size());
 		ROS_INFO("------------------------------------------");
 	}
 	else
 	{
-		ROS_INFO("before sum: %f, mean: %f", sum_error, sum_error/matches.size());
+		ROS_INFO("before sum: %f, mean: %f", sum_error, sum_error / matches.size());
 	}
 }
 
 //save 2d and 3d lines for a local frame and camera pose, and image frames, the last frame in slidingwindow
-void estimator::savelines_2d3d(const bool &save) 
+void estimator::savelines_2d3d(const bool &save)
 {
 	if (save)
 	{
@@ -491,10 +678,10 @@ void estimator::savelines_2d3d(const bool &save)
 		Eigen::Matrix3d R = b2c_R.transpose() * R_w[frame_count].transpose();
 		Eigen::Vector3d T = -R * T_w[frame_count] - b2c_R.transpose() * b2c_T;
 		Eigen::Quaterniond quat(R);
-		
+
 		string pose_file = "estimator_poses.csv";
 		ofstream outpose;
-		if (index==0)
+		if (index == 0)
 			outpose.open(pose_file);
 		else
 			outpose.open(pose_file, ios::app);

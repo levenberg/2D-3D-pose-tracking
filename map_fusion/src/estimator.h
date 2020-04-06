@@ -21,6 +21,18 @@
 #include <tf/transform_listener.h>
 #include <cv_bridge/cv_bridge.h>
 
+#include <pcl/io/ply_io.h>
+#include <pcl/point_cloud.h>
+#include <pcl/point_types.h>
+#include <pcl/kdtree/kdtree_flann.h>
+#include <pcl/common/transforms.h>
+#include <pcl/filters/voxel_grid.h>
+#include <pcl/features/normal_3d.h>
+#include <pcl/surface/mls.h>
+#include <pcl/surface/impl/mls.hpp>
+#include <pcl/filters/statistical_outlier_removal.h>
+
+
 #include "camodocal/camera_models/CameraFactory.h"
 #include "camodocal/camera_models/CataCamera.h"
 #include "camodocal/camera_models/PinholeCamera.h"
@@ -48,13 +60,14 @@ class estimator
 {
 public:
 	estimator(){};
-	void setParameters(const string &calib_file, vector<Vector6d> &_lines3d);
+	void setParameters(const string &calib_file, const string &lines3d_file, const string &cloud_file);
 	void processImage(double _time_stamp, Vector3d &_vio_T, Matrix3d &_vio_R, cv::Mat &_image, vector<line2d> &_lines2d);
 	void loadExtrinsictf(Vector3d &_w2gb_T, Matrix3d &_w2gb_R);
 	vector<line2d> undistortedPoints(vector<line2d> &_lines2d);
 	void showUndistortion(const string &name);
 
 	vector<line3d> updatemaplines_3d(Vector3d &_vio_T, Matrix3d &_vio_R);
+	void processPoints(double _time_stamp, Vector3d &_vio_T, Matrix3d &_vio_R, sensor_msgs::PointCloudConstPtr &_point_msg);
 
 	void jointoptimization();
 	void slideWindow();
@@ -91,6 +104,10 @@ public:
 	vector<line2d> undist_lines2d[WINDOW_SIZE+1];
 	vector<pairsmatch> matches2d3d[WINDOW_SIZE+1];
 	vector<Vector6d> lines3d_map;
+
+	pcl::PointCloud<pcl::PointNormal> normPoints;
+	pcl::KdTreeFLANN<pcl::PointNormal> kdtree;
+	// pcl::KdTreeFLANN<pcl::PointXYZ> kdtree;
 
 	int iterations;
 	int per_inliers;
@@ -148,4 +165,37 @@ struct RegistrationError
 	Vector3d b2c_T;
 	Matrix3d delta_R;
 	Vector3d delta_T;
+};
+
+struct RegistrationError_icp
+{
+	RegistrationError_icp(Eigen::Vector3d p, Eigen::Vector3d q, Eigen::Vector3d n)
+		: p(p), q(q), n(n) {}
+	template <typename T>
+	bool operator()(const T *const rotation,
+					const T *const translation,
+					T *residuals) const
+	{
+		const Eigen::Quaternion<T> R = Eigen::Quaternion<T>(rotation[0], rotation[1],
+															rotation[2], rotation[3]);
+		const Eigen::Matrix<T, 3, 1> t = Eigen::Matrix<T, 3, 1>(translation[0],
+																translation[1],
+																translation[2]);
+		const Eigen::Matrix<T, 3, 1> p_tf = R * p.cast<T>() + t;
+		//Eigen::Matrix<T, 3, 1> err=p_tf - q.cast<T>();
+		residuals[0] = n.transpose().cast<T>()* (p_tf - q.cast<T>());
+
+		return true;
+	}
+
+	static ceres::CostFunction *Create(const Eigen::Vector3d p,
+									   const Eigen::Vector3d q,
+									   const Eigen::Vector3d n)
+	{
+		return (new ceres::AutoDiffCostFunction<RegistrationError_icp, 1, 4, 3>(
+			new RegistrationError_icp(p, q, n)));
+	}
+	Eigen::Vector3d p;
+	Eigen::Vector3d q;
+	Eigen::Vector3d n;
 };

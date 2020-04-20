@@ -68,6 +68,8 @@ public:
 
 	vector<line3d> updatemaplines_3d(Vector3d &_vio_T, Matrix3d &_vio_R);
 	void processPoints(double _time_stamp, Vector3d &_vio_T, Matrix3d &_vio_R, sensor_msgs::PointCloudConstPtr &_point_msg);
+	void sparseICP();
+	vector<PointMatch> nearestpointsearch(vector<Eigen::Vector3d> & pts, Vector3d &_T, Matrix3d &_R, double & r_thr);
 
 	void jointoptimization();
 	void slideWindow();
@@ -105,14 +107,16 @@ public:
 	vector<pairsmatch> matches2d3d[WINDOW_SIZE+1];
 	vector<Vector6d> lines3d_map;
 
+	vector<Vector3d> pointcloud[WINDOW_SIZE+1];
 	pcl::PointCloud<pcl::PointNormal> normPoints;
 	pcl::KdTreeFLANN<pcl::PointNormal> kdtree;
-	// pcl::KdTreeFLANN<pcl::PointXYZ> kdtree;
+	vector<PointMatch> matches3d3d[WINDOW_SIZE+1];
 
 	int iterations;
 	int per_inliers;
 	double lamda; 
 	double threshold;
+	double searchRadius;
 	bool save;
 };
 
@@ -169,19 +173,18 @@ struct RegistrationError
 
 struct RegistrationError_icp
 {
-	RegistrationError_icp(Eigen::Vector3d p, Eigen::Vector3d q, Eigen::Vector3d n)
-		: p(p), q(q), n(n) {}
+	RegistrationError_icp(Eigen::Vector3d p, Eigen::Vector3d q, Eigen::Vector3d n, Eigen::Matrix3d delta_R, Eigen::Vector3d delta_T)
+		: p(p), q(q), n(n), delta_R(delta_R), delta_T(delta_T) {}
 	template <typename T>
 	bool operator()(const T *const rotation,
 					const T *const translation,
 					T *residuals) const
 	{
-		const Eigen::Quaternion<T> R = Eigen::Quaternion<T>(rotation[0], rotation[1],
-															rotation[2], rotation[3]);
-		const Eigen::Matrix<T, 3, 1> t = Eigen::Matrix<T, 3, 1>(translation[0],
-																translation[1],
-																translation[2]);
-		const Eigen::Matrix<T, 3, 1> p_tf = R * p.cast<T>() + t;
+		Matrix<T, 3, 3> R_w = Quaternion<T>(rotation[0], rotation[1], rotation[2], rotation[3]).normalized().toRotationMatrix();
+		Matrix<T, 3, 1> T_w = Matrix<T, 3, 1>(translation[0], translation[1], translation[2]);
+		Matrix<T, 3, 3> R_W_i = delta_R.cast<T>() * R_w;
+		Matrix<T, 3, 1> T_w_i = delta_R.cast<T>() * T_w + delta_T.cast<T>();
+		const Eigen::Matrix<T, 3, 1> p_tf = R_W_i * p.cast<T>() + T_w_i;
 		//Eigen::Matrix<T, 3, 1> err=p_tf - q.cast<T>();
 		residuals[0] = n.transpose().cast<T>()* (p_tf - q.cast<T>());
 
@@ -190,12 +193,16 @@ struct RegistrationError_icp
 
 	static ceres::CostFunction *Create(const Eigen::Vector3d p,
 									   const Eigen::Vector3d q,
-									   const Eigen::Vector3d n)
+									   const Eigen::Vector3d n,
+									   const Eigen::Matrix3d delta_R,
+									   const Eigen::Vector3d delta_T)
 	{
 		return (new ceres::AutoDiffCostFunction<RegistrationError_icp, 1, 4, 3>(
-			new RegistrationError_icp(p, q, n)));
+			new RegistrationError_icp(p, q, n, delta_R, delta_T)));
 	}
 	Eigen::Vector3d p;
 	Eigen::Vector3d q;
 	Eigen::Vector3d n;
+	Eigen::Matrix3d delta_R;
+	Eigen::Vector3d delta_T;
 };

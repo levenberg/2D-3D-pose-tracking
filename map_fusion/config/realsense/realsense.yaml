@@ -62,3 +62,7 @@ threshold: 30
 lamda: 0.1745
 show: 1
 
+# icp parameters
+searchRadius: 0.1
+
+

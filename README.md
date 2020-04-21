@@ -25,7 +25,16 @@ Follow [Ceres Installation](http://ceres-solver.org/installation.html)
 
 1.4 **VINS-Mono** Follow [VINS-Mono](https://github.com/HKUST-Aerial-Robotics/VINS-Mono) 
 
-## 2. Build AFM line detection
+## 2. Build VINS-Mono on ROS
+Clone the repository and catkin_make:
+```
+    cd ~/catkin_ws/src
+    git clone https://github.com/HKUST-Aerial-Robotics/VINS-Mono.git
+    cd ../
+    catkin_make
+    source ~/catkin_ws/devel/setup.bash
+```
+## 3. Build AFM line detection
 The afm 2D line detection package is modified by the original [afm_cvpr2019](https://github.com/cherubicXN/afm_cvpr2019). Independent conda testing is strongly recommend. 
 ```
     cd catkin_ws/src/afm/scripts
@@ -37,18 +46,8 @@ The afm 2D line detection package is modified by the original [afm_cvpr2019](htt
     catkin_make
     source ~/catkin_ws/devel/setup.bash
 ```
-## 3. 3D line detection
+## 4. 3D line detection
 We follow [3D line detection](https://github.com/xiaohulugo/3DLineDetection) to detect geometric 3D lines and the results are included.
-
-## 4. Build VINS-Mono on ROS
-Clone the repository and catkin_make:
-```
-    cd ~/catkin_ws/src
-    git clone https://github.com/HKUST-Aerial-Robotics/VINS-Mono.git
-    cd ../
-    catkin_make
-    source ~/catkin_ws/devel/setup.bash
-```
 
 ## 5. Testing On EuRoC dataset
 Download [EuRoC MAV Dataset](http://projects.asl.ethz.ch/datasets/doku.php?id=kmavvisualinertialdatasets). Although it contains stereo cameras, we only use one camera.

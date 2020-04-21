@@ -9,7 +9,6 @@ set(cv_bridge_DIR "/usr/local/share/cv_bridge/cmake")
 find_package(catkin REQUIRED COMPONENTS
     roscpp
     pcl_ros
-    camera_model
     cv_bridge
     tf
     afm

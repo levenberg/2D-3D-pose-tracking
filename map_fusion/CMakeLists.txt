@@ -41,11 +41,20 @@ find_package(Boost REQUIRED COMPONENTS filesystem)
 include_directories(${Boost_INCLUDE_DIRS})
 
 # 2D to 3D tracking with slidewindow
-add_executable(window_tracking_node
-    src/tracking_node.cpp
+# add_executable(window_tracking_node
+#     src/tracking_node.cpp
+#     src/estimator.cpp
+#     src/line.cpp
+#     src/CameraPoseVisualization.cpp
+#     )
+# add_dependencies(window_tracking_node afm_gencpp)
+# target_link_libraries(window_tracking_node ${catkin_LIBRARIES} ${OpenCV_LIBRARIES} ${CERES_LIBRARIES})
+
+add_executable(fusion_node
+    src/fusion_node.cpp
     src/estimator.cpp
     src/line.cpp
     src/CameraPoseVisualization.cpp
     )
-add_dependencies(window_tracking_node afm_gencpp)
-target_link_libraries(window_tracking_node ${catkin_LIBRARIES} ${OpenCV_LIBRARIES} ${CERES_LIBRARIES})
+add_dependencies(fusion_node afm_gencpp)
+target_link_libraries(fusion_node ${catkin_LIBRARIES} ${OpenCV_LIBRARIES} ${CERES_LIBRARIES})

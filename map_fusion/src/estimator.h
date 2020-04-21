@@ -67,9 +67,13 @@ public:
 	void showUndistortion(const string &name);
 
 	vector<line3d> updatemaplines_3d(Vector3d &_vio_T, Matrix3d &_vio_R);
-	void processPoints(double _time_stamp, Vector3d &_vio_T, Matrix3d &_vio_R, sensor_msgs::PointCloudConstPtr &_point_msg);
+	void processPoints(double _time_stamp, Vector3d &_vio_T, Matrix3d &_vio_R, vector<Vector3d> &_points);
 	void sparseICP();
-	vector<PointMatch> nearestpointsearch(vector<Eigen::Vector3d> & pts, Vector3d &_T, Matrix3d &_R, double & r_thr);
+	vector<PointMatch> nearestpointsearch(vector<Eigen::Vector3d> &pts, Vector3d &_T, Matrix3d &_R, double &r_thr);
+
+	void processPtsAdLines(double _time_stamp, Vector3d &_vio_T, Matrix3d &_vio_R,
+						   cv::Mat &_image, vector<line2d> &_lines2d, vector<Vector3d> &_points);
+	void fusionoptimization();
 
 	void jointoptimization();
 	void slideWindow();
@@ -122,8 +126,8 @@ public:
 
 struct RegistrationError
 {
-	RegistrationError(Vector3d param2d, Vector3d ptstart, Vector3d ptend, Matrix3d K, Matrix3d b2c_R, Vector3d b2c_T, Matrix3d delta_R, Vector3d delta_T)
-		: param2d(param2d), ptstart(ptstart), ptend(ptend), K(K), b2c_R(b2c_R), b2c_T(b2c_T), delta_R(delta_R), delta_T(delta_T) {}
+	RegistrationError(Vector3d param2d, Vector3d ptstart, Vector3d ptend, Matrix3d K, Matrix3d b2c_R, Vector3d b2c_T, Matrix3d delta_R, Vector3d delta_T, double normalterm)
+		: param2d(param2d), ptstart(ptstart), ptend(ptend), K(K), b2c_R(b2c_R), b2c_T(b2c_T), delta_R(delta_R), delta_T(delta_T), normalterm(normalterm) {}
 	template <typename T>
 	bool operator()(const T *const rotation,
 					const T *const translation,
@@ -142,8 +146,8 @@ struct RegistrationError
 		const Matrix<T, 3, 1> ptend_tf = K.cast<T>() * (R * ptend.cast<T>() + t);
 		const T dist_st = (T(param2d.x()) * ptstart_tf.x() / ptstart_tf.z() + T(param2d.y()) * ptstart_tf.y() / ptstart_tf.z() + T(param2d.z()));
 		const T dist_ed = (T(param2d.x()) * ptend_tf.x() / ptend_tf.z() + T(param2d.y()) * ptend_tf.y() / ptend_tf.z() + T(param2d.z()));
-		residuals[0] = dist_st;
-		residuals[1] = dist_ed;
+		residuals[0] = dist_st/T(normalterm);
+		residuals[1] = dist_ed/T(normalterm);
 
 		return true;
 	}
@@ -155,10 +159,11 @@ struct RegistrationError
 									   const Matrix3d b2c_R,
 									   const Vector3d b2c_T,
 									   const Matrix3d delta_R,
-									   const Vector3d delta_T)
+									   const Vector3d delta_T,
+									   const double normalterm)
 	{
 		return (new ceres::AutoDiffCostFunction<RegistrationError, 2, 4, 3>(
-			new RegistrationError(param2d, ptstart, ptend, K, b2c_R, b2c_T, delta_R, delta_T)));
+			new RegistrationError(param2d, ptstart, ptend, K, b2c_R, b2c_T, delta_R, delta_T, normalterm)));
 	}
 	Vector3d param2d;
 	Vector3d ptstart;
@@ -169,12 +174,13 @@ struct RegistrationError
 	Vector3d b2c_T;
 	Matrix3d delta_R;
 	Vector3d delta_T;
+	double normalterm;
 };
 
 struct RegistrationError_icp
 {
-	RegistrationError_icp(Eigen::Vector3d p, Eigen::Vector3d q, Eigen::Vector3d n, Eigen::Matrix3d delta_R, Eigen::Vector3d delta_T)
-		: p(p), q(q), n(n), delta_R(delta_R), delta_T(delta_T) {}
+	RegistrationError_icp(Eigen::Vector3d p, Eigen::Vector3d q, Eigen::Vector3d n, Eigen::Matrix3d delta_R, Eigen::Vector3d delta_T, double normalterm)
+		: p(p), q(q), n(n), delta_R(delta_R), delta_T(delta_T), normalterm(normalterm) {}
 	template <typename T>
 	bool operator()(const T *const rotation,
 					const T *const translation,
@@ -186,8 +192,8 @@ struct RegistrationError_icp
 		Matrix<T, 3, 1> T_w_i = delta_R.cast<T>() * T_w + delta_T.cast<T>();
 		const Eigen::Matrix<T, 3, 1> p_tf = R_W_i * p.cast<T>() + T_w_i;
 		//Eigen::Matrix<T, 3, 1> err=p_tf - q.cast<T>();
-		residuals[0] = n.transpose().cast<T>()* (p_tf - q.cast<T>());
-
+		const T dist = n.transpose().cast<T>() * (p_tf - q.cast<T>());
+		residuals[0] = dist / T(normalterm);
 		return true;
 	}
 
@@ -195,14 +201,16 @@ struct RegistrationError_icp
 									   const Eigen::Vector3d q,
 									   const Eigen::Vector3d n,
 									   const Eigen::Matrix3d delta_R,
-									   const Eigen::Vector3d delta_T)
+									   const Eigen::Vector3d delta_T,
+									   const double normalterm)
 	{
 		return (new ceres::AutoDiffCostFunction<RegistrationError_icp, 1, 4, 3>(
-			new RegistrationError_icp(p, q, n, delta_R, delta_T)));
+			new RegistrationError_icp(p, q, n, delta_R, delta_T, normalterm)));
 	}
 	Eigen::Vector3d p;
 	Eigen::Vector3d q;
 	Eigen::Vector3d n;
 	Eigen::Matrix3d delta_R;
 	Eigen::Vector3d delta_T;
+	double normalterm;
 };

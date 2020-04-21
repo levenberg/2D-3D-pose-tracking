@@ -291,17 +291,15 @@ void process2d3d()
         }
     }
 }
-void pubGpointcloud(const std_msgs::Header &header, sensor_msgs::PointCloudConstPtr &_point_msg)
+void pubGpointcloud(const std_msgs::Header &header, vector<Vector3d> &_points)
 {
     sensor_msgs::PointCloud point_cloud;
     point_cloud.header = header;
     int indx=Estimator.frame_count;
-    for (unsigned int i = 0; i < _point_msg->points.size(); i++)
+    for (unsigned int i = 0; i < _points.size(); i++)
     {
-        Eigen::Vector3d pt_gb(_point_msg->points[i].x, _point_msg->points[i].y, _point_msg->points[i].z);
-        Eigen::Vector3d pt_b = Estimator.vio_R[indx].transpose() * (pt_gb - Estimator.vio_T[indx]);
         // transfom local point clouds from body frame to world frame.
-        Eigen::Vector3d pt_w = Estimator.R_w[indx] * pt_b + Estimator.T_w[indx];
+        Eigen::Vector3d pt_w = Estimator.R_w[indx] * _points[i] + Estimator.T_w[indx];
         geometry_msgs::Point32 p;
         p.x = pt_w(0);
         p.y = pt_w(1);
@@ -370,10 +368,18 @@ void process3d3d()
                                          pose_msg->pose.pose.orientation.z)
                                  .normalized()
                                  .toRotationMatrix();
+            //reconstructed 3d points in body frame
+            vector<Eigen::Vector3d> points;
+            for (unsigned int i = 0; i < point_msg->points.size(); i++)
+            {
+                Eigen::Vector3d pt(point_msg->points[i].x, point_msg->points[i].y, point_msg->points[i].z);
+                Eigen::Vector3d pt_b = vio_R.transpose() * (pt - vio_T);
+                points.push_back(pt_b);
+            }
 
-            Estimator.processPoints(pose_msg->header.stamp.toSec(), vio_T, vio_R, point_msg);
+            Estimator.processPoints(pose_msg->header.stamp.toSec(), vio_T, vio_R, points);
             pubGodometry(pose_msg->header);
-            pubGpointcloud(pose_msg->header, point_msg);
+            pubGpointcloud(pose_msg->header, points);
         }
     }
 }

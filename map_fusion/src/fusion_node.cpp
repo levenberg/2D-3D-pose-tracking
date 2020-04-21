@@ -291,17 +291,15 @@ void process2d3d()
         }
     }
 }
-void pubGpointcloud(const std_msgs::Header &header, sensor_msgs::PointCloudConstPtr &_point_msg)
+void pubGpointcloud(const std_msgs::Header &header, vector<Vector3d> &_points)
 {
     sensor_msgs::PointCloud point_cloud;
     point_cloud.header = header;
     int indx=Estimator.frame_count;
-    for (unsigned int i = 0; i < _point_msg->points.size(); i++)
+    for (unsigned int i = 0; i < _points.size(); i++)
     {
-        Eigen::Vector3d pt_gb(_point_msg->points[i].x, _point_msg->points[i].y, _point_msg->points[i].z);
-        Eigen::Vector3d pt_b = Estimator.vio_R[indx].transpose() * (pt_gb - Estimator.vio_T[indx]);
         // transfom local point clouds from body frame to world frame.
-        Eigen::Vector3d pt_w = Estimator.R_w[indx] * pt_b + Estimator.T_w[indx];
+        Eigen::Vector3d pt_w = Estimator.R_w[indx] * _points[i] + Estimator.T_w[indx];
         geometry_msgs::Point32 p;
         p.x = pt_w(0);
         p.y = pt_w(1);
@@ -310,7 +308,7 @@ void pubGpointcloud(const std_msgs::Header &header, sensor_msgs::PointCloudConst
     }
     pub_pointclouds.publish(point_cloud);
 }
-void process3d3d()
+void process_fusion()
 {
     if (!cloud_fusion)
         return;
@@ -318,11 +316,12 @@ void process3d3d()
     {
         sensor_msgs::ImageConstPtr image_msg = NULL;
         sensor_msgs::PointCloudConstPtr point_msg = NULL;
+        afm::lines2d::ConstPtr afmline_msg = NULL;
         nav_msgs::Odometry::ConstPtr pose_msg = NULL;
         // find out the latest image msg
         m_buf.lock();
 
-        if (!image_buf.empty() && !point_buf.empty() && !pose_buf.empty())
+        if (!image_buf.empty() &&!afmline_buf.empty() && !point_buf.empty() && !pose_buf.empty())
         {
             if (image_buf.front()->header.stamp.toSec() > pose_buf.front()->header.stamp.toSec())
             {
@@ -331,11 +330,17 @@ void process3d3d()
             }
             else if (image_buf.front()->header.stamp.toSec() > point_buf.front()->header.stamp.toSec())
             {
-                pose_buf.pop();
+                point_buf.pop();
                 printf("throw point at beginning\n");
             }
+            else if (image_buf.front()->header.stamp.toSec() > afmline_buf.front()->header.stamp.toSec())
+            {
+                afmline_buf.pop();
+                printf("throw line becuase at begining\n");
+            }
             else if (image_buf.back()->header.stamp.toSec() >= pose_buf.front()->header.stamp.toSec() &&
-                     point_buf.back()->header.stamp.toSec() >= pose_buf.front()->header.stamp.toSec())
+                     point_buf.back()->header.stamp.toSec() >= pose_buf.front()->header.stamp.toSec() &&
+                     afmline_buf.back()->header.stamp.toSec() >= pose_buf.front()->header.stamp.toSec())
             {
                 pose_msg = pose_buf.front();
                 pose_buf.pop();
@@ -352,15 +357,39 @@ void process3d3d()
                     point_buf.pop();
                 point_msg = point_buf.front();
                 point_buf.pop();
+
+                while (afmline_buf.front()->header.stamp.toSec() < pose_msg->header.stamp.toSec())
+                    afmline_buf.pop();
+                afmline_msg = afmline_buf.front();
+                afmline_buf.pop();
             }
         }
         m_buf.unlock();
         if (pose_msg != NULL && valid_pose)
         {
+            // printf(" LINE time %f \n", afmline_msg->header.stamp.toSec()); //line time is not aligned very accurate
             // printf(" point time %f \n", point_msg->header.stamp.toSec());
             // printf(" image time %f \n", image_msg->header.stamp.toSec());
             // printf(" pose time %f \n", pose_msg->header.stamp.toSec());
+            //image
+            cv_bridge::CvImageConstPtr ptr;
+            if (image_msg->encoding == "8UC1") //gray img
+            {
+                sensor_msgs::Image img;
+                img.header = image_msg->header;
+                img.height = image_msg->height;
+                img.width = image_msg->width;
+                img.is_bigendian = image_msg->is_bigendian;
+                img.step = image_msg->step;
+                img.data = image_msg->data;
+                img.encoding = "mono8";
+                ptr = cv_bridge::toCvCopy(img, sensor_msgs::image_encodings::MONO8);
+            }
+            else //color img
+                ptr = cv_bridge::toCvCopy(image_msg, sensor_msgs::image_encodings::MONO8);
 
+            cv::Mat image = ptr->image; 
+            //VIO pose
             Vector3d vio_T = Vector3d(pose_msg->pose.pose.position.x,
                                       pose_msg->pose.pose.position.y,
                                       pose_msg->pose.pose.position.z);
@@ -370,10 +399,29 @@ void process3d3d()
                                          pose_msg->pose.pose.orientation.z)
                                  .normalized()
                                  .toRotationMatrix();
+            // read 2d line message
+            vector<line2d> lines2d;
+            for (size_t i=0; i<afmline_msg->startx.size(); i++)
+            {
+                line2d lnd(Eigen::Vector4d(afmline_msg->startx[i],afmline_msg->starty[i], afmline_msg->endx[i], afmline_msg->endy[i]));
+                lines2d.push_back(lnd);
+            }
 
-            Estimator.processPoints(pose_msg->header.stamp.toSec(), vio_T, vio_R, point_msg);
+            //reconstructed 3d points in body frame
+            vector<Eigen::Vector3d> points;
+            for (unsigned int i = 0; i < point_msg->points.size(); i++)
+            {
+                Eigen::Vector3d pt(point_msg->points[i].x, point_msg->points[i].y, point_msg->points[i].z);
+                Eigen::Vector3d pt_b = vio_R.transpose() * (pt - vio_T);
+                points.push_back(pt_b);
+            }
+            Estimator.processPtsAdLines(pose_msg->header.stamp.toSec(), vio_T, vio_R, image, lines2d, points);
             pubGodometry(pose_msg->header);
-            pubGpointcloud(pose_msg->header, point_msg);
+            if (show_feat)
+            {
+                pubFeatureimg(pose_msg->header);
+                pubGpointcloud(pose_msg->header, points);
+            }
         }
     }
 }
@@ -397,7 +445,7 @@ int main(int argc, char **argv)
     // std::thread joint_process;
     // joint_process = std::thread(process2d3d);
     std::thread joint_process3d;
-    joint_process3d = std::thread(process3d3d);
+    joint_process3d = std::thread(process_fusion);
     // ros::Rate r(20);
     ros::spin();
 }

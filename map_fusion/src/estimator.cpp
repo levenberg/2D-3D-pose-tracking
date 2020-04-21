@@ -61,7 +61,7 @@ void estimator::setParameters(const string &calib_file, const string &lines3d_fi
 		iss >> line3d[0] >> line3d[1] >> line3d[2] >> line3d[3] >> line3d[4] >> line3d[5];
 		lines3d_map.push_back(line3d);
 	}
-	ROS_INFO("loading 3D line segments ... %d ... finished", lines3d_map.size());
+	ROS_INFO("loading 3D line segments ... %d ... finished", int(lines3d_map.size()));
 
 	pcl::PointCloud<pcl::PointXYZ>::Ptr cloud(new pcl::PointCloud<pcl::PointXYZ>);
 	pcl::io::loadPLYFile(cloud_file, *cloud);
@@ -190,7 +190,7 @@ void estimator::processImage(double _time_stamp, Vector3d &_vio_T, Matrix3d &_vi
 		savematches(match1, index, delta_R[frame_count], delta_T[frame_count], false);
 	}
 }
-void estimator::processPoints(double _time_stamp, Vector3d &_vio_T, Matrix3d &_vio_R, sensor_msgs::PointCloudConstPtr &_point_msg)
+void estimator::processPoints(double _time_stamp, Vector3d &_vio_T, Matrix3d &_vio_R, vector<Vector3d> &_points)
 {
 	if (frame_count < WINDOW_SIZE)
 		frame_count++;
@@ -198,14 +198,8 @@ void estimator::processPoints(double _time_stamp, Vector3d &_vio_T, Matrix3d &_v
 	vio_T[frame_count] = _vio_T;
 	vio_R[frame_count] = _vio_R;
 
-	pointcloud[frame_count].clear();
-	for (unsigned int i = 0; i < _point_msg->points.size(); i++)
-	{
-		// transform points to body frame, store points in every body frame
-		Eigen::Vector3d pt(_point_msg->points[i].x, _point_msg->points[i].y, _point_msg->points[i].z);
-		Eigen::Vector3d pt_b = _vio_R.transpose() * (pt - _vio_T);
-		pointcloud[frame_count].push_back(pt_b);
-	}
+	pointcloud[frame_count]= _points;
+	
 	if (frame_count > 0)
 	{ //P(n-1)=delta_R*P(n)+delta_T
 		delta_R[frame_count - 1] = vio_R[frame_count - 1] * vio_R[frame_count].transpose();
@@ -245,9 +239,69 @@ void estimator::processPoints(double _time_stamp, Vector3d &_vio_T, Matrix3d &_v
 	}
 	index++;
 }
+
+void estimator::processPtsAdLines(double _time_stamp, Vector3d &_vio_T, Matrix3d &_vio_R,
+					   cv::Mat &_image, vector<line2d> &_lines2d, vector<Vector3d> &_points)
+{
+	if (frame_count < WINDOW_SIZE)
+		frame_count++;
+	time_stamp[frame_count] = _time_stamp;
+	vio_T[frame_count] = _vio_T;
+	vio_R[frame_count] = _vio_R;
+	image[frame_count] = _image.clone();
+	lines2d[frame_count] = _lines2d;
+	undist_lines2d[frame_count] = undistortedPoints(_lines2d);
+	pointcloud[frame_count]= _points;
+	if (frame_count > 0)
+	{ //P(n-1)=delta_R*P(n)+delta_T
+		delta_R[frame_count - 1] = vio_R[frame_count - 1] * vio_R[frame_count].transpose();
+		delta_T[frame_count - 1] = vio_T[frame_count - 1] - delta_R[frame_count - 1] * vio_T[frame_count];
+	}
+	delta_R[frame_count] << 1, 0, 0,
+		0, 1, 0,
+		0, 0, 1;
+	delta_T[frame_count] << 0.0, 0.0, 0.0;
+
+	if (solver_flag == INITIAL)
+	{
+		//find local 3d lines
+		T_w[frame_count] = _vio_T;
+		R_w[frame_count] = _vio_R;
+
+		lines3d[frame_count] = updatemaplines_3d(_vio_T, _vio_R);
+		Matrix3d tempRot = b2c_R.transpose() * R_w[frame_count].transpose();
+		Vector3d tempTrans = -tempRot * T_w[frame_count] - b2c_R.transpose() * b2c_T;
+		matches2d3d[frame_count] = updatecorrespondence(lines3d[frame_count], undist_lines2d[frame_count], K, tempRot, tempTrans, lamda, threshold);
+		
+		matches3d3d[frame_count] = nearestpointsearch(pointcloud[frame_count], T_w[frame_count], R_w[frame_count], searchRadius);
+
+		fuse_pose();
+		if (frame_count == WINDOW_SIZE - 1 || WINDOW_SIZE == 0)
+		{
+			solver_flag = NON_LINEAR;
+		}
+	}
+	else
+	{
+		//predict current frame
+		R_w[frame_count] = delta_R[frame_count - 1].transpose() * R_w[frame_count - 1];
+		T_w[frame_count] = delta_R[frame_count - 1].transpose() * (T_w[frame_count - 1] - delta_T[frame_count - 1]);
+		lines3d[frame_count] = updatemaplines_3d(T_w[frame_count], R_w[frame_count]);
+		Matrix3d tempRot = b2c_R.transpose() * R_w[frame_count].transpose();
+		Vector3d tempTrans = -tempRot * T_w[frame_count] - b2c_R.transpose() * b2c_T;
+		matches2d3d[frame_count] = updatecorrespondence(lines3d[frame_count], undist_lines2d[frame_count], K, tempRot, tempTrans, lamda, threshold);
+		
+		matches3d3d[frame_count] = nearestpointsearch(pointcloud[frame_count], T_w[frame_count], R_w[frame_count], searchRadius);
+		//solve optimization
+		fusionoptimization();
+		//slideWindow
+		slideWindow();
+		fuse_pose();
+	}
+	index++;
+}
 vector<PointMatch> estimator::nearestpointsearch(vector<Eigen::Vector3d> & pts, Vector3d &_T, Matrix3d &_R, double & r_thr)
 {
-	
 	//obtain 3D correspondence based on current pose
 	vector<PointMatch> matches;
 	for (unsigned int i = 0; i < pts.size(); i++)
@@ -298,8 +352,6 @@ void estimator::sparseICP()
 	//icp iterative update 3D correspondence
 	for (int iter = 0; iter < iterations; iter++)
 	{
-		// TODO: use delta_tf to add all the matches3d3d in sliding window
-
 		//ceres optimization using 3D correspondences
 		ceres::Problem problem;
 		Eigen::Quaterniond updateQuat(R_w[frame_count]);
@@ -315,7 +367,7 @@ void estimator::sparseICP()
 			{
 				ceres::CostFunction *cost_function =
 					RegistrationError_icp::Create(matches3d3d[nframe][i].p, matches3d3d[nframe][i].q, matches3d3d[nframe][i].n,
-												  delta_R_n[nframe], delta_T_n[nframe]);
+												  delta_R_n[nframe], delta_T_n[nframe], 1.0);
 
 				problem.AddResidualBlock(
 					cost_function,
@@ -526,7 +578,6 @@ vector<line2d> estimator::undistortedPoints(vector<line2d> &_lines2d)
 // using extracted 2D and 3D line features to get the correspondence and refine the camera pose
 void estimator::jointoptimization()
 {
-
 	Matrix3d delta_R_n[frame_count + 1];
 	Vector3d delta_T_n[frame_count + 1];
 	delta_R_n[frame_count] = delta_R[frame_count];
@@ -579,7 +630,7 @@ void estimator::jointoptimization()
 								 matches2d3d[nframe][i].line2dt.B / matches2d3d[nframe][i].line2dt.A2B2, matches2d3d[nframe][i].line2dt.C / matches2d3d[nframe][i].line2dt.A2B2);
 				ceres::CostFunction *cost_function =
 					RegistrationError::Create(param2d, matches2d3d[nframe][i].line3dt.ptstart, matches2d3d[nframe][i].line3dt.ptend, K,
-											  b2c_R, b2c_T, delta_R_n[nframe], delta_T_n[nframe]);
+											  b2c_R, b2c_T, delta_R_n[nframe], delta_T_n[nframe], 1.0);
 
 				problem.AddResidualBlock(
 					cost_function,
@@ -616,12 +667,146 @@ void estimator::jointoptimization()
 	}
 }
 
+void estimator::fusionoptimization()
+{
+	Matrix3d delta_R_n[frame_count + 1];
+	Vector3d delta_T_n[frame_count + 1];
+	delta_R_n[frame_count] = delta_R[frame_count];
+	delta_T_n[frame_count] = delta_T[frame_count];
+
+	savelines_2d3d(save);
+	double theta = lamda;
+	double r_thr=searchRadius;
+	double reject_threshod = threshold;
+
+	for (int nframe = frame_count - 1; nframe >= 0; nframe--)
+	{
+		// ROS_INFO("obtian %d", nframe);
+		delta_R_n[nframe] = delta_R[nframe] * delta_R_n[nframe + 1];
+		delta_T_n[nframe] = delta_R[nframe] * delta_T_n[nframe + 1] + delta_T[nframe];
+	}
+	for (int iter = 0; iter < iterations; iter++)
+	{
+		//ceres optimization using 2d-3d correspondences
+		ceres::Problem problem;
+		Eigen::Quaterniond updateQuat(R_w[frame_count]);
+		std::vector<double> ceres_rotation = std::vector<double>({updateQuat.w(), updateQuat.x(), updateQuat.y(), updateQuat.z()});
+		std::vector<double> ceres_translation = std::vector<double>({T_w[frame_count].x(), T_w[frame_count].y(), T_w[frame_count].z()});
+		ceres::LocalParameterization *quaternion_parameterization =
+			new ceres::QuaternionParameterization;
+
+		int Num_matches2d3d = 0;
+		std::vector<ceres::ResidualBlockId> psrID2d3d;
+		ceres::LossFunction *loss_func2d3d(new ceres::HuberLoss(3.0));
+		for (int nframe = frame_count; nframe >= 0; nframe--)
+		{
+			Num_matches2d3d+=matches2d3d[nframe].size();
+			for (unsigned int i = 0; i < matches2d3d[nframe].size(); i++)
+			{
+				Vector3d param2d(matches2d3d[nframe][i].line2dt.A / matches2d3d[nframe][i].line2dt.A2B2,
+								 matches2d3d[nframe][i].line2dt.B / matches2d3d[nframe][i].line2dt.A2B2, matches2d3d[nframe][i].line2dt.C / matches2d3d[nframe][i].line2dt.A2B2);
+				ceres::CostFunction *cost_function =
+					RegistrationError::Create(param2d, matches2d3d[nframe][i].line3dt.ptstart, matches2d3d[nframe][i].line3dt.ptend, K,
+											  b2c_R, b2c_T, delta_R_n[nframe], delta_T_n[nframe], reject_threshod/2.0);
+
+				auto ID=problem.AddResidualBlock(
+					cost_function,
+					loss_func2d3d,
+					&(ceres_rotation[0]),
+					&(ceres_translation[0]));
+				problem.SetParameterization(&(ceres_rotation[0]), quaternion_parameterization);
+				psrID2d3d.push_back(ID);
+			}
+		}
+
+		int Num_matches3d3d=0;
+		std::vector<ceres::ResidualBlockId> psrID3d3d;
+		ceres::LossFunction *loss_func3d3d(new ceres::HuberLoss(0.5 * 0.5));
+		for (int nframe = frame_count; nframe >= 0; nframe--)
+		{
+			for (unsigned int i = 0; i < matches3d3d[nframe].size(); i++)
+			{
+				ceres::CostFunction *cost_function =
+					RegistrationError_icp::Create(matches3d3d[nframe][i].p, matches3d3d[nframe][i].q, matches3d3d[nframe][i].n,
+												  delta_R_n[nframe], delta_T_n[nframe], r_thr);
+
+				auto ID=problem.AddResidualBlock(
+					cost_function,
+					loss_func3d3d,
+					&(ceres_rotation[0]), //what is here
+					&(ceres_translation[0]));
+				problem.SetParameterization(&(ceres_rotation[0]), quaternion_parameterization);
+				psrID3d3d.push_back(ID);
+			}
+			Num_matches3d3d+=matches3d3d[nframe].size();
+		}
+
+		if (Num_matches2d3d < frame_count * per_inliers && Num_matches3d3d < frame_count * per_inliers) //current frame feature is not stable, skip, use the vio pose
+		{
+			ROS_WARN("feature matching is not enough");
+			break;
+		}
+		//debug
+		if (save)
+		{
+			ceres::Problem::EvaluateOptions EvalOpts;
+			EvalOpts.num_threads = 8;
+			EvalOpts.apply_loss_function = false;
+			EvalOpts.residual_blocks = psrID2d3d;
+			std::vector<double> Residuals2d3d;
+			problem.Evaluate(EvalOpts, nullptr, &Residuals2d3d, nullptr, nullptr);
+			cout << "2D-3D residual:" << endl;
+			for (size_t i = 0; i < Residuals2d3d.size(); i++)
+			{
+				cout << Residuals2d3d.at(i) << ", ";
+			}
+			cout << endl
+				 << "3D-3D residual:" << endl;
+			EvalOpts.residual_blocks = psrID3d3d;
+			std::vector<double> Residuals3d3d;
+			problem.Evaluate(EvalOpts, nullptr, &Residuals3d3d, nullptr, nullptr);
+			for (size_t i = 0; i < Residuals3d3d.size(); i++)
+			{
+				cout << Residuals3d3d.at(i) << ", ";
+			}
+			cout << endl;
+		}
+
+		ceres::Solver::Options options;
+		options.linear_solver_type = ceres::SPARSE_SCHUR;
+		options.minimizer_progress_to_stdout = false;
+		options.max_num_iterations = 30;
+		options.num_threads = 12;
+		// options.logging_type = SILENT;
+		ceres::Solver::Summary summary;
+		ceres::Solve(options, &problem, &summary);
+		// std::cout << summary.BriefReport() << "\n";
+		Eigen::Quaterniond q(ceres_rotation[0], ceres_rotation[1], ceres_rotation[2], ceres_rotation[3]);
+		Eigen::Vector3d t(ceres_translation[0], ceres_translation[1], ceres_translation[2]);
+		R_w[frame_count] = q.normalized().toRotationMatrix();
+		T_w[frame_count] = t;
+
+		if (save && iter == iterations - 1)
+		{
+			savematches(matches2d3d[frame_count], frame_count, delta_R_n[frame_count], delta_T_n[frame_count], true);
+		}
+		//more restrict threshold for inlier 2d-3d correspondences
+		theta = 0.9 * theta;
+		reject_threshod = 0.9 * reject_threshod;
+		Matrix3d tempRot = b2c_R.transpose() * R_w[frame_count].transpose();
+		Vector3d tempTrans = -tempRot * T_w[frame_count] - b2c_R.transpose() * b2c_T;
+		matches2d3d[frame_count] = updatecorrespondence(lines3d[frame_count], undist_lines2d[frame_count], K, tempRot, tempTrans, theta, reject_threshod);
+		//more restrict threshold for inlier 3d-3d correspondences
+		r_thr = std::max(0.2, r_thr * 0.9);
+		matches3d3d[frame_count] = nearestpointsearch(pointcloud[frame_count], T_w[frame_count], R_w[frame_count], r_thr);
+	}
+}
 void estimator::fuse_pose()
 {
 	Eigen::Matrix3d deR = R_w[frame_count - 1] * R_w[frame_count].transpose();
 	Eigen::Vector3d deT = T_w[frame_count - 1] - deR * T_w[frame_count];
 
-	if ((deT - delta_T[frame_count - 1]).norm() > 0.8)
+	if ((deT - delta_T[frame_count - 1]).norm() > 0.2 || deT.norm()>0.2)
 	{
 		ROS_WARN("correspondence error...");
 		R_w[frame_count] = delta_R[frame_count - 1].transpose() * R_w[frame_count - 1];
@@ -656,8 +841,8 @@ void estimator::slideWindow()
 		delta_T[i] = delta_T[i + 1];
 		T_w[i] = T_w[i + 1];
 		R_w[i] = R_w[i + 1];
-		//image[i] = image[i+1];
-		//lines2d[i] = lines2d[i+1];
+		image[i] = image[i+1];
+		lines2d[i] = lines2d[i+1];
 		undist_lines2d[i] = undist_lines2d[i + 1];
 		lines3d[i] = lines3d[i + 1];
 		matches2d3d[i] = matches2d3d[i + 1];

@@ -67,8 +67,8 @@ Download [Corridors data](https://drive.google.com/file/d/1Ffke-wFpRifmw7nvcwQCr
 
 To run VINS-Mono on this data, 
 ```
-    cp src/VINS-Mono-config/realsense_infra1_config.yaml src/VINS-Mono/config/realsense/
-    cp src/VINS-Mono-config/realsense_infra.launch src/VINS-Mono/vins_estimator/launch/
+    cp src/2D-3D-pose-tracking/VINS-Mono-config/realsense_infra1_config.yaml src/VINS-Mono/config/realsense/
+    cp src/2D-3D-pose-tracking/VINS-Mono-config/realsense_infra.launch src/VINS-Mono/vins_estimator/launch/
 ```
 Then,
 ```
@@ -78,7 +78,14 @@ Then,
     rosbag play YOUR_PATH_TO_DATASET/corridors.bag
 ```
 ## 7. Citation
-
+```
+@inproceedings{Yu2020MonocularCL,
+  title={Monocular Camera Localization in Prior LiDAR Maps with 2D-3D Line Correspondences},
+  author={Huai Yu and Weikun Zhen and Wen Yang and Ji Zhang and Sebastian Scherer},
+  journal={arXiv preprint arXiv:2004.00740},
+  year={2020}
+}
+```
 ## 8. Reference
 
 [1] Qin, Tong, Peiliang Li, and Shaojie Shen. "Vins-mono: A robust and versatile monocular visual-inertial state estimator." IEEE Transactions on Robotics 34.4 (2018): 1004-1020.

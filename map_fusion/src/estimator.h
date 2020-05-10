@@ -67,7 +67,7 @@ public:
 	void showUndistortion(const string &name);
 
 	vector<line3d> updatemaplines_3d(Vector3d &_vio_T, Matrix3d &_vio_R);
-	void processPoints(double _time_stamp, Vector3d &_vio_T, Matrix3d &_vio_R, vector<Vector3d> &_points);
+	void processPoints(double _time_stamp, Vector3d &_vio_T, Matrix3d &_vio_R, cv::Mat &_image, vector<Vector3d> &_points);
 	void sparseICP();
 	vector<PointMatch> nearestpointsearch(vector<Eigen::Vector3d> &pts, Vector3d &_T, Matrix3d &_R, double &r_thr);
 

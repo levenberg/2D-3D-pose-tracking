@@ -163,21 +163,24 @@ void pubFeatureimg(const std_msgs::Header &header)
 	Eigen::Vector3d T_vio = -R_vio* Estimator.vio_T[indx] - Estimator.b2c_R.transpose()*Estimator.b2c_T;
 
     // publish 2D and 3D features in images
+    // Note: All the 3D line is too many, only use the matched 3D lines to project.
 
-    for (size_t i = 0; i < Estimator.lines3d[indx].size(); i++)
+    for (size_t i = 0; i < Estimator.matches2d3d[indx].size(); i++)
     {
-        line2d p_l2d = Estimator.lines3d[indx][i].transform3D(R_vio, T_vio).project3D(Estimator.K);
+        line2d p_l2d = Estimator.matches2d3d[indx][i].line3dt.transform3D(R_vio, T_vio).project3D(Estimator.K);
         cv::Point2d pt1(p_l2d.ptstart.x(), p_l2d.ptstart.y());
         cv::Point2d pt2(p_l2d.ptend.x(), p_l2d.ptend.y());
         cv::line(tmp1_img, pt1, pt2, cv::Scalar(0, 255, 0), 3);
-    }
-    for (size_t i = 0; i < Estimator.undist_lines2d[indx].size(); i++)
-    {
-        line2d l2d = Estimator.undist_lines2d[indx][i];
+
+        line2d l2d = Estimator.matches2d3d[indx][i].line2dt;
         cv::Point2d pt3(l2d.ptstart.x(), l2d.ptstart.y());
         cv::Point2d pt4(l2d.ptend.x(), l2d.ptend.y());
         cv::line(tmp1_img, pt3, pt4, cv::Scalar(0, 0, 255), 2);
     }
+    // for (size_t i = 0; i < Estimator.undist_lines2d[indx].size(); i++)
+    // {
+        
+    // }
     sensor_msgs::ImagePtr msg = cv_bridge::CvImage(header, "bgr8", tmp1_img).toImageMsg();
     pub_featimg.publish(msg);
 
@@ -200,6 +203,25 @@ void pubFeatureimg(const std_msgs::Header &header)
     pub_matches.publish(msg2);
 
 }
+
+void pubGpointcloud(const std_msgs::Header &header, vector<Vector3d> &_points)
+{
+    sensor_msgs::PointCloud point_cloud;
+    point_cloud.header = header;
+    int indx=Estimator.frame_count;
+    for (unsigned int i = 0; i < _points.size(); i++)
+    {
+        // transfom local point clouds from body frame to world frame.
+        Eigen::Vector3d pt_w = Estimator.R_w[indx] * _points[i] + Estimator.T_w[indx];
+        geometry_msgs::Point32 p;
+        p.x = pt_w(0);
+        p.y = pt_w(1);
+        p.z = pt_w(2);
+        point_cloud.points.push_back(p);
+    }
+    pub_pointclouds.publish(point_cloud);
+}
+
 void process2d3d()
 {
     if (!cloud_fusion)
@@ -207,12 +229,13 @@ void process2d3d()
     while (true) // how to find the exact image frame with point and pose
     {
         sensor_msgs::ImageConstPtr image_msg = NULL;
+        sensor_msgs::PointCloudConstPtr point_msg = NULL;
         afm::lines2d::ConstPtr afmline_msg = NULL;
         nav_msgs::Odometry::ConstPtr pose_msg = NULL;
         // find out the latest image msg
         m_buf.lock();
 
-        if (!image_buf.empty() &&!afmline_buf.empty() && !pose_buf.empty())
+        if (!image_buf.empty() &&!afmline_buf.empty() && !point_buf.empty() && !pose_buf.empty())
         {
             if (image_buf.front()->header.stamp.toSec() > pose_buf.front()->header.stamp.toSec())
             {
@@ -222,17 +245,23 @@ void process2d3d()
             else if (afmline_buf.front()->header.stamp.toSec() > pose_buf.front()->header.stamp.toSec())
             {
                 pose_buf.pop();
-                printf("throw pose becuase no line extracted\n");
+                printf("throw pose becuase no line extracted\n"); // line extraction is slow than vio
+            }
+            else if (image_buf.front()->header.stamp.toSec() > point_buf.front()->header.stamp.toSec())
+            {
+                point_buf.pop();
+                printf("throw point at beginning\n");
             }
             else if (image_buf.back()->header.stamp.toSec() >= pose_buf.front()->header.stamp.toSec()&&
+            point_buf.back()->header.stamp.toSec() >= pose_buf.front()->header.stamp.toSec() &&
              afmline_buf.back()->header.stamp.toSec() >= pose_buf.front()->header.stamp.toSec())
             {
                 pose_msg = pose_buf.front();
                 pose_buf.pop();
-                // while (!pose_buf.empty())
-                // {
-                //     pose_buf.pop();
-                // }
+                while (!pose_buf.empty())
+                {
+                    pose_buf.pop();
+                }
                 while (image_buf.front()->header.stamp.toSec() < pose_msg->header.stamp.toSec())
                     image_buf.pop();
                 image_msg = image_buf.front();
@@ -242,6 +271,11 @@ void process2d3d()
                     afmline_buf.pop();
                 afmline_msg = afmline_buf.front();
                 afmline_buf.pop();
+
+                while (point_buf.front()->header.stamp.toSec() < pose_msg->header.stamp.toSec())
+                    point_buf.pop();
+                point_msg = point_buf.front();
+                point_buf.pop();
             }
         }
         m_buf.unlock();
@@ -284,29 +318,134 @@ void process2d3d()
                                      pose_msg->pose.pose.orientation.y,
                                      pose_msg->pose.pose.orientation.z).normalized().toRotationMatrix();
 
+            //reconstructed 3d points in body frame
+            vector<Eigen::Vector3d> points;
+            for (unsigned int i = 0; i < point_msg->points.size(); i++)
+            {
+                Eigen::Vector3d pt(point_msg->points[i].x, point_msg->points[i].y, point_msg->points[i].z);
+                Eigen::Vector3d pt_b = vio_R.transpose() * (pt - vio_T);
+                points.push_back(pt_b);
+            }
+
             Estimator.processImage(pose_msg->header.stamp.toSec(), vio_T, vio_R, image, lines2d);
             pubGodometry(pose_msg->header);
             if (show_feat)
+            {
                 pubFeatureimg(pose_msg->header);
+                pubGpointcloud(pose_msg->header, points);
+            }
         }
     }
 }
-void pubGpointcloud(const std_msgs::Header &header, vector<Vector3d> &_points)
+
+void process3d3d()
 {
-    sensor_msgs::PointCloud point_cloud;
-    point_cloud.header = header;
-    int indx=Estimator.frame_count;
-    for (unsigned int i = 0; i < _points.size(); i++)
+    if (!cloud_fusion)
+        return;
+    while (true)
     {
-        // transfom local point clouds from body frame to world frame.
-        Eigen::Vector3d pt_w = Estimator.R_w[indx] * _points[i] + Estimator.T_w[indx];
-        geometry_msgs::Point32 p;
-        p.x = pt_w(0);
-        p.y = pt_w(1);
-        p.z = pt_w(2);
-        point_cloud.points.push_back(p);
+        sensor_msgs::ImageConstPtr image_msg = NULL;
+        sensor_msgs::PointCloudConstPtr point_msg = NULL;
+        afm::lines2d::ConstPtr afmline_msg = NULL;
+        nav_msgs::Odometry::ConstPtr pose_msg = NULL;
+        // find out the latest image msg
+        m_buf.lock();
+
+        if (!image_buf.empty() &&!afmline_buf.empty() && !point_buf.empty() && !pose_buf.empty())
+        {
+            if (image_buf.front()->header.stamp.toSec() > pose_buf.front()->header.stamp.toSec())
+            {
+                pose_buf.pop();
+                printf("throw pose at beginning\n");
+            }
+            else if (image_buf.front()->header.stamp.toSec() > point_buf.front()->header.stamp.toSec())
+            {
+                point_buf.pop();
+                printf("throw point at beginning\n");
+            }
+            else if (afmline_buf.front()->header.stamp.toSec() > pose_buf.front()->header.stamp.toSec())
+            {
+                pose_buf.pop();
+                printf("throw pose becuase no line extracted\n"); // line extraction is slow than vio
+            }
+            else if (image_buf.back()->header.stamp.toSec() >= pose_buf.front()->header.stamp.toSec() &&
+                     point_buf.back()->header.stamp.toSec() >= pose_buf.front()->header.stamp.toSec() &&
+                     afmline_buf.back()->header.stamp.toSec() >= pose_buf.front()->header.stamp.toSec())
+            {
+                pose_msg = pose_buf.front();
+                pose_buf.pop();
+                while (!pose_buf.empty())
+                {
+                    pose_buf.pop();
+                }
+                while (image_buf.front()->header.stamp.toSec() < pose_msg->header.stamp.toSec())
+                    image_buf.pop();
+                image_msg = image_buf.front();
+                image_buf.pop();
+
+                while (point_buf.front()->header.stamp.toSec() < pose_msg->header.stamp.toSec())
+                    point_buf.pop();
+                point_msg = point_buf.front();
+                point_buf.pop();
+
+                while (afmline_buf.front()->header.stamp.toSec() < pose_msg->header.stamp.toSec())
+                    afmline_buf.pop();
+                afmline_msg = afmline_buf.front();
+                afmline_buf.pop();
+            }
+        }
+        m_buf.unlock();
+        if (pose_msg != NULL && valid_pose)
+        {
+            // printf(" LINE time %f \n", afmline_msg->header.stamp.toSec()); //line time is not aligned very accurate
+            // printf(" point time %f \n", point_msg->header.stamp.toSec());
+            // printf(" image time %f \n", image_msg->header.stamp.toSec());
+            // printf(" pose time %f \n", pose_msg->header.stamp.toSec());
+            cv_bridge::CvImageConstPtr ptr;
+            if (image_msg->encoding == "8UC1") //gray img
+            {
+                sensor_msgs::Image img;
+                img.header = image_msg->header;
+                img.height = image_msg->height;
+                img.width = image_msg->width;
+                img.is_bigendian = image_msg->is_bigendian;
+                img.step = image_msg->step;
+                img.data = image_msg->data;
+                img.encoding = "mono8";
+                ptr = cv_bridge::toCvCopy(img, sensor_msgs::image_encodings::MONO8);
+            }
+            else //color img
+                ptr = cv_bridge::toCvCopy(image_msg, sensor_msgs::image_encodings::MONO8);
+
+            cv::Mat image = ptr->image;
+            //VIO pose
+            Vector3d vio_T = Vector3d(pose_msg->pose.pose.position.x,
+                                      pose_msg->pose.pose.position.y,
+                                      pose_msg->pose.pose.position.z);
+            Matrix3d vio_R = Quaterniond(pose_msg->pose.pose.orientation.w,
+                                         pose_msg->pose.pose.orientation.x,
+                                         pose_msg->pose.pose.orientation.y,
+                                         pose_msg->pose.pose.orientation.z)
+                                 .normalized()
+                                 .toRotationMatrix();
+
+            //reconstructed 3d points in body frame
+            vector<Eigen::Vector3d> points;
+            for (unsigned int i = 0; i < point_msg->points.size(); i++)
+            {
+                Eigen::Vector3d pt(point_msg->points[i].x, point_msg->points[i].y, point_msg->points[i].z);
+                Eigen::Vector3d pt_b = vio_R.transpose() * (pt - vio_T);
+                points.push_back(pt_b);
+            }
+            Estimator.processPoints(pose_msg->header.stamp.toSec(), vio_T, vio_R, image,  points);
+            pubGodometry(pose_msg->header);
+            if (show_feat)
+            {
+                pubFeatureimg(pose_msg->header);
+                pubGpointcloud(pose_msg->header, points);
+            }
+        }
     }
-    pub_pointclouds.publish(point_cloud);
 }
 void process_fusion()
 {
@@ -333,10 +472,10 @@ void process_fusion()
                 point_buf.pop();
                 printf("throw point at beginning\n");
             }
-            else if (image_buf.front()->header.stamp.toSec() > afmline_buf.front()->header.stamp.toSec())
+            else if (afmline_buf.front()->header.stamp.toSec() > pose_buf.front()->header.stamp.toSec())
             {
-                afmline_buf.pop();
-                printf("throw line becuase at begining\n");
+                pose_buf.pop();
+                printf("throw pose becuase no line extracted\n"); // line extraction is slow than vio
             }
             else if (image_buf.back()->header.stamp.toSec() >= pose_buf.front()->header.stamp.toSec() &&
                      point_buf.back()->header.stamp.toSec() >= pose_buf.front()->header.stamp.toSec() &&
@@ -442,10 +581,18 @@ int main(int argc, char **argv)
     ros::Subscriber sub_lineafm=n.subscribe("/Lines2d", 1000, afm_line_callback);
     ros::Subscriber sub_point = n.subscribe("/vins_estimator/point_cloud", 1000, point_callback); // 
     ros::Subscriber sub_basepose=n.subscribe("/benchmark_publisher/base_pose", 1000, base_pose_callback);
-    // std::thread joint_process;
-    // joint_process = std::thread(process2d3d);
-    std::thread joint_process3d;
-    joint_process3d = std::thread(process_fusion);
+
+    
+    std::thread joint_process;
+
+    //only use 2D-3D pose tracking
+    joint_process = std::thread(process2d3d);
+
+    //only use 3D-3D pose tracking
+    // joint_process = std::thread(process3d3d);
+
+    // use both 2D-3D and 3D-3D
+    // joint_process = std::thread(process_fusion);
     // ros::Rate r(20);
     ros::spin();
 }

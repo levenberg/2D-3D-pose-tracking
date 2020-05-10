@@ -190,14 +190,14 @@ void estimator::processImage(double _time_stamp, Vector3d &_vio_T, Matrix3d &_vi
 		savematches(match1, index, delta_R[frame_count], delta_T[frame_count], false);
 	}
 }
-void estimator::processPoints(double _time_stamp, Vector3d &_vio_T, Matrix3d &_vio_R, vector<Vector3d> &_points)
+void estimator::processPoints(double _time_stamp, Vector3d &_vio_T, Matrix3d &_vio_R, cv::Mat &_image, vector<Vector3d> &_points)
 {
 	if (frame_count < WINDOW_SIZE)
 		frame_count++;
 	time_stamp[frame_count] = _time_stamp;
 	vio_T[frame_count] = _vio_T;
 	vio_R[frame_count] = _vio_R;
-
+	image[frame_count] = _image.clone();
 	pointcloud[frame_count]= _points;
 	
 	if (frame_count > 0)
@@ -714,7 +714,7 @@ void estimator::fusionoptimization()
 					loss_func2d3d,
 					&(ceres_rotation[0]),
 					&(ceres_translation[0]));
-				problem.SetParameterization(&(ceres_rotation[0]), quaternion_parameterization);
+				//problem.SetParameterization(&(ceres_rotation[0]), quaternion_parameterization);
 				psrID2d3d.push_back(ID);
 			}
 		}
@@ -735,13 +735,13 @@ void estimator::fusionoptimization()
 					loss_func3d3d,
 					&(ceres_rotation[0]), //what is here
 					&(ceres_translation[0]));
-				problem.SetParameterization(&(ceres_rotation[0]), quaternion_parameterization);
+				//problem.SetParameterization(&(ceres_rotation[0]), quaternion_parameterization);
 				psrID3d3d.push_back(ID);
 			}
 			Num_matches3d3d+=matches3d3d[nframe].size();
 		}
 
-		if (Num_matches2d3d < frame_count * per_inliers && Num_matches3d3d < frame_count * per_inliers) //current frame feature is not stable, skip, use the vio pose
+		if (Num_matches2d3d < frame_count * per_inliers || Num_matches3d3d < frame_count * per_inliers) //current frame feature is not stable, skip, use the vio pose
 		{
 			ROS_WARN("feature matching is not enough");
 			break;
@@ -771,6 +771,8 @@ void estimator::fusionoptimization()
 			}
 			cout << endl;
 		}
+
+		problem.SetParameterization(&(ceres_rotation[0]), quaternion_parameterization);
 
 		ceres::Solver::Options options;
 		options.linear_solver_type = ceres::SPARSE_SCHUR;

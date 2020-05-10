@@ -58,11 +58,11 @@ extrinsicTranslation: !!opencv-matrix
 iterations: 2
 per_inliers: 8
 savefile: 0
-threshold: 25
+threshold: 28
 lamda: 0.1745
 show: 1
 
 # icp parameters
-searchRadius: 0.1
+searchRadius: 0.20
 
 

@@ -172,6 +172,7 @@ Eigen::Vector3d pairsmatch::calcEulerDist(const Eigen::Matrix3d &K, const double
         // add penalty for large length error and non-overlap
         if (project2dline.length < 0.5 * line2dt.length)
             return Vector3d{dist, 3.14, 0};
+
         //overlap distance
         overlap_dist=(line2dt.point2flined(project2dline.ptstart)-line2dt.point2flined(project2dline.ptend)).norm();
         if(overlap_dist<0.5*min(project2dline.length, line2dt.length))
@@ -248,18 +249,23 @@ std::vector<pairsmatch> updatecorrespondence(std::vector<line3d> &lines_3d,
         int index = 0;
         double mindist = 1000;
         Vector3d vecdist{0,0,0};
+        double depthmid=0.0;
         for (size_t j = 0; j < lines_3d.size(); j++)
         {
-            pairsmatch tfmatch(i, lines_2d[i], lines_3d[j].transform3D(R, t));
+            line3d tf2c_line3d=lines_3d[j].transform3D(R, t);
+            pairsmatch tfmatch(i, lines_2d[i], tf2c_line3d);
             Vector3d dist = tfmatch.calcEulerDist(K, theta);
             if (dist.x() < mindist)
             {
                 mindist = dist.x();
                 vecdist=dist;
                 index = j;
+                depthmid=tf2c_line3d.ptmid[2];
             }
         }
-        if (mindist<outlier_threshold)
+        //adjust the threshold by mid point distance to camera
+        double threshold = (4 - depthmid) * 2.0 + outlier_threshold;
+        if (mindist<threshold)
         {
             // cout<<i<<"-th line2d is matched with "<<index<<"-th line3d, mindist="<<mindist<<endl;
             pairsmatch match(indx, lines_2d[i], lines_3d[index]);

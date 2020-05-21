@@ -43,10 +43,11 @@ include_directories(${Boost_INCLUDE_DIRS})
 
 # 2D to 3D tracking with slidewindow
 add_executable(window_tracking_node
-    src/tracking_node.cpp
+    src/acml.cpp
     src/estimator.cpp
     src/line.cpp
     src/CameraPoseVisualization.cpp
+    src/ParticleFilter.cpp
     )
 add_dependencies(window_tracking_node afm_gencpp)
 target_link_libraries(window_tracking_node ${catkin_LIBRARIES} ${OpenCV_LIBRARIES} ${CERES_LIBRARIES})

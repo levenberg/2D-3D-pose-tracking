@@ -55,10 +55,19 @@ extrinsicTranslation: !!opencv-matrix
    data: [0.0, 0.0, 0.0]
 
 # optimization parameters
-iterations: 2
+iterations: 1
 per_inliers: 8
 savefile: 0
-threshold: 30
+threshold: 25
 lamda: 0.1745
 show: 1
+
+# Particle filter parameters
+num_particles: 10
+t_dev: 0.05
+a_dev: 0.1
+t_mod: 0.1
+a_mod: 0.3
+
+
 

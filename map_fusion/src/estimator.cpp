@@ -46,6 +46,12 @@ void estimator::setParameters(const string &calib_file, vector<Vector6d> &_lines
 	lamda= static_cast<double>(fsSettings["lamda"]);
 	save=static_cast<int>(fsSettings["savefile"]);
 
+	// particle filter parameters
+	num_particles = static_cast<int>(fsSettings["num_particles"]);
+	t_dev = static_cast<double>(fsSettings["t_dev"]);
+	a_dev = static_cast<double>(fsSettings["a_dev"]);
+	t_mod = static_cast<double>(fsSettings["t_mod"]);
+	a_mod = static_cast<double>(fsSettings["a_mod"]);
 	ROS_INFO("Finishing setting params for sliding window...");
 }
 // load transformation of 3D map to global body, body to camera tranform.
@@ -87,20 +93,42 @@ void estimator::processImage(double _time_stamp, Vector3d &_vio_T, Matrix3d &_vi
 		Vector3d tempTrans = -tempRot * T_w[frame_count] - b2c_R.transpose() * b2c_T;
 		matches2d3d[frame_count] = updatecorrespondence(lines3d[frame_count], undist_lines2d[frame_count], K, tempRot, tempTrans, lamda, threshold);
 		fuse_pose();
-		if (frame_count == WINDOW_SIZE-1 || WINDOW_SIZE==0)
+		if (frame_count == WINDOW_SIZE - 1 || WINDOW_SIZE == 0)
 		{
-			solver_flag = NON_LINEAR; 
+			solver_flag = NON_LINEAR;
+			// initialize particle filters
+			// pf_.init(num_particles, _vio_T, _vio_R, t_dev, a_dev);
 		}
 	} 
 	else
 	{
-		//predict current frame
-		R_w[frame_count]=delta_R[frame_count - 1].transpose()*R_w[frame_count - 1];
-        T_w[frame_count]=delta_R[frame_count - 1].transpose()*(T_w[frame_count-1]-delta_T[frame_count - 1]);
 		lines3d[frame_count] = updatemaplines_3d(T_w[frame_count], R_w[frame_count]);
+		//with vio prediction
+		Matrix3d delta_R2i = delta_R[frame_count - 1].transpose();
+		Vector3d delta_T2i = -delta_R2i * delta_T[frame_count - 1];
+		R_w[frame_count] = delta_R2i * R_w[frame_count - 1];
+		T_w[frame_count] = delta_R2i * T_w[frame_count - 1] + delta_T2i;
+
+
+		//sampling strategy
 		Matrix3d tempRot = b2c_R.transpose() * R_w[frame_count].transpose();
 		Vector3d tempTrans = -tempRot * T_w[frame_count] - b2c_R.transpose() * b2c_T;
-		matches2d3d[frame_count] = updatecorrespondence(lines3d[frame_count], undist_lines2d[frame_count], K, tempRot, tempTrans, lamda, threshold);
+		pf_.init(num_particles, tempTrans, t_dev);
+		matches2d3d[frame_count]=pf_.update(lines3d[frame_count], undist_lines2d[frame_count], 
+											K, tempRot, tempTrans, lamda, threshold);
+		T_w[frame_count] = -tempRot.transpose()*(tempTrans+b2c_R.transpose() * b2c_T);
+
+
+		// particle filter predict
+		//pf_.predict(delta_R2i, delta_T2i, t_mod, a_mod);
+		// particle filter update
+		//pf_.update(lines3d[frame_count], undist_lines2d[frame_count], K, R_w[frame_count], lamda, threshold);
+		// particle filter resample and obtain mean
+		//pf_.resample(R_w[frame_count], T_w[frame_count]);
+		
+		
+		
+		//matches2d3d[frame_count] = updatecorrespondence(lines3d[frame_count], undist_lines2d[frame_count], K, tempRot, tempTrans, lamda, threshold);
 		//solve optimization
 		jointoptimization();
 		//slideWindow
@@ -303,18 +331,13 @@ void estimator::jointoptimization()
 		int Num_matches = 0;
 		for (int nframe = frame_count; nframe >= 0; nframe--)
 		{
-			// Matrix3d R_w_n = delta_R_n[nframe] * R_w[frame_count];
-			// Vector3d T_w_n = delta_R_n[nframe] * T_w[frame_count] + delta_T_n[nframe];
-			// Matrix3d tempRot = b2c_R.transpose() * R_w_n.transpose();
-			// Vector3d tempTrans = -tempRot * T_w_n - b2c_R.transpose() * b2c_T;
-			// matches2d3d[nframe] = updatecorrespondence(lines3d[nframe], undist_lines2d[nframe], K, tempRot, tempTrans, theta, reject_threshod);
 			Num_matches += matches2d3d[nframe].size();
 		}
 		if (save && iter == 0)
 		{
 			savematches(matches2d3d[frame_count], frame_count, delta_R_n[frame_count], delta_T_n[frame_count], false);
 		}
-		if (Num_matches < frame_count * per_inliers) //current frame feature is not stable, skip, use the vio pose
+		if (matches2d3d[frame_count].size() <  per_inliers ||Num_matches<per_inliers*frame_count) //current frame feature is not stable, skip, use the vio pose
 		{
 			ROS_WARN("feature matching is not enough");
 			break;

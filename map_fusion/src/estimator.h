@@ -28,6 +28,7 @@
 #include "ceres/ceres.h"
 #include "line.h"
 #include "afm/lines2d.h"
+#include "ParticleFilter.h"
 
 #define WINDOW_SIZE 10
 using namespace Eigen;
@@ -97,6 +98,11 @@ public:
 	double lamda; 
 	double threshold;
 	bool save;
+
+	amcl3d::ParticleFilter pf_;
+	int num_particles;  // number of particles
+	double t_dev, a_dev;  // covariance of trans and yaw for particle initialization.
+	double t_mod, a_mod;  // covariance when prediction
 };
 
 struct RegistrationError

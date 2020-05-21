@@ -1,7 +1,7 @@
 <launch>
 
 <!-- corridors  nsh  smith-->
-    <arg name="data_path" default = "smith" />
+    <arg name="data_path" default = "corridors" />
     <arg name="cloud_name"  default="$(find map_fusion)/config/realsense/$(arg data_path)/pt.ply"/>
     <arg name="config_file" default="$(find map_fusion)/config/realsense/realsense.yaml" />
     <arg name="line3d_file" default="$(find map_fusion)/config/realsense/$(arg data_path)/line_3d.txt" />

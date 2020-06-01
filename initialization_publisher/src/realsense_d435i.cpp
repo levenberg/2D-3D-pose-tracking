@@ -153,12 +153,12 @@ int main(int argc, char **argv)
     // model_points.push_back(cv::Point3d(6.5389, -1.4134, 303.9270));
     // model_points.push_back(cv::Point3d(5.0779, -13.4357, 306.7890));
     // corridors
-    model_points.push_back(cv::Point3d(0.323834, -1.47807, 248.7590));
-    model_points.push_back(cv::Point3d(2.5406, -2.0500, 248.7320));
-    model_points.push_back(cv::Point3d(3.9421, -4.7723,248.7400));
-    model_points.push_back(cv::Point3d(3.9695,-4.8148, 250.8440));
-    model_points.push_back(cv::Point3d(2.4435,-1.6717,248.7610));
-    model_points.push_back(cv::Point3d(3.0735,-1.3492,248.7490));
+    // model_points.push_back(cv::Point3d(0.323834, -1.47807, 248.7590));
+    // model_points.push_back(cv::Point3d(2.5406, -2.0500, 248.7320));
+    // model_points.push_back(cv::Point3d(3.9421, -4.7723,248.7400));
+    // model_points.push_back(cv::Point3d(3.9695,-4.8148, 250.8440));
+    // model_points.push_back(cv::Point3d(2.4435,-1.6717,248.7610));
+    // model_points.push_back(cv::Point3d(3.0735,-1.3492,248.7490));
     // capturePoint.push_back(cv::Point2d(405, 356));
     // capturePoint.push_back(cv::Point2d(322, 320));
     // capturePoint.push_back(cv::Point2d(380, 304));

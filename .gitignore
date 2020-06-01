@@ -2,4 +2,5 @@
 VINS-Mono/
 map_fusion/config/realsense/nsh/
 map_fusion/config/realsense/smith/
+map_fusion/config/realsense/bridge/
 map_fusion/config/realsense/corridors/pointcloud.ply

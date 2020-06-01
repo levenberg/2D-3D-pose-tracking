@@ -198,7 +198,7 @@ class AFM(object):
         ratio = lines[:,4]/lengths    
 
         threshold = cfg.TEST.DISPLAY.THRESHOLD 
-        idx = np.where(np.bitwise_and(ratio<=threshold,lengths>20))[0]    
+        idx = np.where(np.bitwise_and(ratio<=threshold,lengths>10))[0]    
         lines = lines[idx]
         lengths=lengths[idx]
 

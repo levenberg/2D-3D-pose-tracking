@@ -586,13 +586,13 @@ int main(int argc, char **argv)
     std::thread joint_process;
 
     //only use 2D-3D pose tracking
-    joint_process = std::thread(process2d3d);
+    // joint_process = std::thread(process2d3d);
 
     //only use 3D-3D pose tracking
     // joint_process = std::thread(process3d3d);
 
     // use both 2D-3D and 3D-3D
-    // joint_process = std::thread(process_fusion);
+    joint_process = std::thread(process_fusion);
     // ros::Rate r(20);
     ros::spin();
 }

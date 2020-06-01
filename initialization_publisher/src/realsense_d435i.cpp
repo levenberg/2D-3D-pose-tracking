@@ -172,7 +172,13 @@ int main(int argc, char **argv)
     // model_points.push_back(cv::Point3d(-34.7965,1.7041,328.4419));
     // model_points.push_back(cv::Point3d(-34.7761,1.7378,326.050));
     // model_points.push_back(cv::Point3d(-32.6928, 1.3859, 326.0384));
-
+    //bridge
+    model_points.push_back(cv::Point3d(-8.9477, 4.1596, 214.3563));
+    model_points.push_back(cv::Point3d(-8.4846, 3.9496, 214.5637));
+    model_points.push_back(cv::Point3d(-8.0557, 2.8238, 214.5695));
+    model_points.push_back(cv::Point3d(-7.7329, 1.9261, 214.5833));
+    model_points.push_back(cv::Point3d(-7.3198, 0.8150, 214.5713));
+    model_points.push_back(cv::Point3d(-7.5253, 0.3827, 214.3622));
 
     pub_3dmap =  n.advertise<pcl::PointCloud<pcl::PointXYZRGBA>>("/benchmark_publisher/map_clouds",1000);
     pub_basepose= n.advertise<nav_msgs::Odometry>("/benchmark_publisher/base_pose", 1000);

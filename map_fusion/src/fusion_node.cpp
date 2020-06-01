@@ -23,7 +23,7 @@ nav_msgs::Path path;
 ros::Publisher pub_pointclouds;
 
 estimator Estimator;
-CameraPoseVisualization cameraposevisual(0, 0, 0, 1);
+CameraPoseVisualization cameraposevisual(0, 1, 0, 1);
 bool valid_pose=false;
 bool show_feat=false;
 void readParameters(ros::NodeHandle &n)
@@ -165,22 +165,20 @@ void pubFeatureimg(const std_msgs::Header &header)
     // publish 2D and 3D features in images
     // Note: All the 3D line is too many, only use the matched 3D lines to project.
 
-    for (size_t i = 0; i < Estimator.matches2d3d[indx].size(); i++)
+    for (size_t i = 0; i < Estimator.lines3d[indx].size(); i++)
     {
-        line2d p_l2d = Estimator.matches2d3d[indx][i].line3dt.transform3D(R_vio, T_vio).project3D(Estimator.K);
+        line2d p_l2d = Estimator.lines3d[indx][i].transform3D(R_vio, T_vio).project3D(Estimator.K);
         cv::Point2d pt1(p_l2d.ptstart.x(), p_l2d.ptstart.y());
         cv::Point2d pt2(p_l2d.ptend.x(), p_l2d.ptend.y());
         cv::line(tmp1_img, pt1, pt2, cv::Scalar(0, 255, 0), 3);
-
-        line2d l2d = Estimator.matches2d3d[indx][i].line2dt;
+    }
+    for (size_t i = 0; i < Estimator.undist_lines2d[indx].size(); i++)
+    {
+        line2d l2d = Estimator.undist_lines2d[indx][i];
         cv::Point2d pt3(l2d.ptstart.x(), l2d.ptstart.y());
         cv::Point2d pt4(l2d.ptend.x(), l2d.ptend.y());
         cv::line(tmp1_img, pt3, pt4, cv::Scalar(0, 0, 255), 2);
     }
-    // for (size_t i = 0; i < Estimator.undist_lines2d[indx].size(); i++)
-    // {
-        
-    // }
     sensor_msgs::ImagePtr msg = cv_bridge::CvImage(header, "bgr8", tmp1_img).toImageMsg();
     pub_featimg.publish(msg);
 

@@ -56,9 +56,9 @@ extrinsicTranslation: !!opencv-matrix
 
 # optimization parameters
 iterations: 2
-per_inliers: 8
+per_inliers: 5
 savefile: 0
-threshold: 28
+threshold: 30
 lamda: 0.1745
 show: 1
 

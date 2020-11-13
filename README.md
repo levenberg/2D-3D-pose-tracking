@@ -81,7 +81,7 @@ Then,
 @inproceedings{Yu2020MonocularCL,
   title={Monocular Camera Localization in Prior LiDAR Maps with 2D-3D Line Correspondences},
   author={Huai Yu and Weikun Zhen and Wen Yang and Ji Zhang and Sebastian Scherer},
-  journal={arXiv preprint arXiv:2004.00740},
+  journal={IROS},
   year={2020}
 }
 ```

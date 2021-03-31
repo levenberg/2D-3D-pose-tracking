@@ -139,7 +139,7 @@ vector<line3d> estimator::updatemaplines_3d(Vector3d &_vio_T, Matrix3d &_vio_R)
 		if (tf_start_pt[2] > 0)
 		{
 			double xx=K(0,0)*tf_start_pt[0]/tf_start_pt[2]+K(0,2);
-			double yy=K(1,0)*tf_start_pt[1]/tf_start_pt[2]+K(1,2);
+			double yy=K(1,1)*tf_start_pt[1]/tf_start_pt[2]+K(1,2);
 			if (xx*(xx+1-image[frame_count].cols) <= 0 && yy*(yy+1-image[frame_count].rows) <= 0)
 					start_flag = true;
 		}
@@ -147,7 +147,7 @@ vector<line3d> estimator::updatemaplines_3d(Vector3d &_vio_T, Matrix3d &_vio_R)
 		if (tf_end_pt[2] > 0)
 		{
 			double xx=K(0,0)*tf_end_pt[0]/tf_end_pt[2]+K(0,2);
-			double yy=K(1,0)*tf_end_pt[1]/tf_end_pt[2]+K(1,2);
+			double yy=K(1,1)*tf_end_pt[1]/tf_end_pt[2]+K(1,2);
 			if (xx*(xx+1-image[frame_count].cols) <= 0 && yy*(yy+1-image[frame_count].rows) <= 0)
 					end_flag = true;
 		}
@@ -171,7 +171,7 @@ vector<line3d> estimator::updatemaplines_3d(Vector3d &_vio_T, Matrix3d &_vio_R)
 				if (temp_tf_end_pt[2] > 0)
 				{
 					double xx = K(0, 0) * temp_tf_end_pt[0] / temp_tf_end_pt[2] + K(0, 2);
-					double yy = K(1, 0) * temp_tf_end_pt[1] / temp_tf_end_pt[2] + K(1, 2);
+					double yy = K(1, 1) * temp_tf_end_pt[1] / temp_tf_end_pt[2] + K(1, 2);
 					if (xx * (xx + 1 - image[frame_count].cols) <= 0 && yy * (yy + 1 - image[frame_count].rows) <= 0)
 						t += 0.1;
 					else
@@ -198,7 +198,7 @@ vector<line3d> estimator::updatemaplines_3d(Vector3d &_vio_T, Matrix3d &_vio_R)
 				if (temp_tf_start_pt[2] > 0)
 				{
 					double xx = K(0, 0) * temp_tf_start_pt[0] / temp_tf_start_pt[2] + K(0, 2);
-					double yy = K(1, 0) * temp_tf_start_pt[1] / temp_tf_start_pt[2] + K(1, 2);
+					double yy = K(1, 1) * temp_tf_start_pt[1] / temp_tf_start_pt[2] + K(1, 2);
 					if (xx * (xx + 1 - image[frame_count].cols) <= 0 && yy * (yy + 1 - image[frame_count].rows) <= 0)
 						t += 0.1;
 					else
@@ -349,7 +349,7 @@ void estimator::jointoptimization()
 		options.linear_solver_type = ceres::SPARSE_SCHUR;
 		options.minimizer_progress_to_stdout = false; 
 		options.max_num_iterations = 30;
-		options.num_threads = 12;
+		options.num_threads = 8;
 		// options.logging_type = SILENT;
 		ceres::Solver::Summary summary;
 		ceres::Solve(options, &problem, &summary);

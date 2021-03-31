@@ -13,7 +13,6 @@ endif()
 find_package(PCL 1.8 REQUIRED)
 include_directories(${PCL_INCLUDE_DIRS})
 
-set(cv_bridge_DIR "/usr/local/share/cv_bridge/cmake")
 find_package(catkin REQUIRED COMPONENTS
     roscpp
     tf

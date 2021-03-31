@@ -5,7 +5,6 @@ set(CMAKE_BUILD_TYPE "Release")
 set(CMAKE_CXX_FLAGS "-std=c++11 -DEIGEN_DONT_PARALLELIZE")
 set(CMAKE_CXX_FLAGS_RELEASE "-O3 -Wall -g -rdynamic")
 
-set(cv_bridge_DIR "/usr/local/share/cv_bridge/cmake")
 find_package(catkin REQUIRED COMPONENTS
     roscpp
     pcl_ros

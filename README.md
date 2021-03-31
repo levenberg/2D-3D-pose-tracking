@@ -25,7 +25,16 @@ Follow [Ceres Installation](http://ceres-solver.org/installation.html)
 
 1.4 **VINS-Mono** Follow [VINS-Mono](https://github.com/HKUST-Aerial-Robotics/VINS-Mono) 
 
-## 2. Build AFM line detection
+## 2. Build VINS-Mono on ROS
+Clone the repository and catkin_make:
+```
+    cd ~/catkin_ws/src
+    git clone https://github.com/HKUST-Aerial-Robotics/VINS-Mono.git
+    cd ../
+    catkin_make
+    source ~/catkin_ws/devel/setup.bash
+```
+## 3. Build AFM line detection
 The afm 2D line detection package is modified by the original [afm_cvpr2019](https://github.com/cherubicXN/afm_cvpr2019). Independent conda testing is strongly recommend. 
 ```
     cd catkin_ws/src/afm/scripts
@@ -37,18 +46,8 @@ The afm 2D line detection package is modified by the original [afm_cvpr2019](htt
     catkin_make
     source ~/catkin_ws/devel/setup.bash
 ```
-## 3. 3D line detection
+## 4. 3D line detection
 We follow [3D line detection](https://github.com/xiaohulugo/3DLineDetection) to detect geometric 3D lines and the results are included.
-
-## 4. Build VINS-Mono on ROS
-Clone the repository and catkin_make:
-```
-    cd ~/catkin_ws/src
-    git clone https://github.com/HKUST-Aerial-Robotics/VINS-Mono.git
-    cd ../
-    catkin_make
-    source ~/catkin_ws/devel/setup.bash
-```
 
 ## 5. Testing On EuRoC dataset
 Download [EuRoC MAV Dataset](http://projects.asl.ethz.ch/datasets/doku.php?id=kmavvisualinertialdatasets). Although it contains stereo cameras, we only use one camera.
@@ -67,8 +66,8 @@ Download [Corridors data](https://drive.google.com/file/d/1Ffke-wFpRifmw7nvcwQCr
 
 To run VINS-Mono on this data, 
 ```
-    cp src/VINS-Mono-config/realsense_infra1_config.yaml src/VINS-Mono/config/realsense/
-    cp src/VINS-Mono-config/realsense_infra.launch src/VINS-Mono/vins_estimator/launch/
+    cp src/2D-3D-pose-tracking/VINS-Mono-config/realsense_infra1_config.yaml src/VINS-Mono/config/realsense/
+    cp src/2D-3D-pose-tracking/VINS-Mono-config/realsense_infra.launch src/VINS-Mono/vins_estimator/launch/
 ```
 Then,
 ```
@@ -78,7 +77,14 @@ Then,
     rosbag play YOUR_PATH_TO_DATASET/corridors.bag
 ```
 ## 7. Citation
-
+```
+@inproceedings{Yu2020MonocularCL,
+  title={Monocular Camera Localization in Prior LiDAR Maps with 2D-3D Line Correspondences},
+  author={Huai Yu and Weikun Zhen and Wen Yang and Ji Zhang and Sebastian Scherer},
+  journal={IROS},
+  year={2020}
+}
+```
 ## 8. Reference
 
 [1] Qin, Tong, Peiliang Li, and Shaojie Shen. "Vins-mono: A robust and versatile monocular visual-inertial state estimator." IEEE Transactions on Robotics 34.4 (2018): 1004-1020.

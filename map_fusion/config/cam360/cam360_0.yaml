@@ -1,0 +1,66 @@
+%YAML:1.0
+
+#common parameters
+image_topic: "/ros_frame/camera_0"
+output_path: "/home/cam360/Documents"
+
+#camera calibration 
+model_type: MEI
+camera_name: camera
+image_width: 816
+image_height: 686
+mirror_parameters:
+   xi: 1.7611304049140395
+distortion_parameters:
+   k1: -0.11244081175224713
+   k2: 0.15405016667491067
+   p1: -0.00038031797429535443
+   p2: -0.00010442241015034751
+projection_parameters:
+   gamma1: 535.8572870329474
+   gamma2: 536.7718044461199
+   u0: 404.30409874398526
+   v0: 334.09489788735095
+   
+#additional transform for bais
+initialRotation: !!opencv-matrix
+   rows: 3
+   cols: 3
+   dt: d
+   data: [0.559231,  -0.825915,  0.0715889,
+          0.820932,   0.563738,  0.0909351,
+          -0.115462,  0.00791596, 0.99328]
+
+#Translation from first body frame to world frame
+initialTranslation: !!opencv-matrix
+   rows: 3
+   cols: 1
+   dt: d
+   data: [-19.2952, -32.5391, -302.446]
+   
+extrinsicRotation: !!opencv-matrix
+   rows: 3
+   cols: 3
+   dt: d
+   data: [-0.006459003581365058, 0.003038662384736046, 0.9999745235772981,
+          0.9999760489561285, 0.0025061884966109116, 0.006451397779310086,
+          -0.00248652102813246, 0.9999922427449763, -0.0030547770860750723]
+#Translation from camera frame to imu frame, imu^T_cam
+extrinsicTranslation: !!opencv-matrix
+   rows: 3
+   cols: 1
+   dt: d
+   data: [3.1864933998490282e-02, 0.00801415302790905,  -3.9128207987320765e-02]
+
+# optimization parameters
+iterations: 2
+per_inliers: 5
+savefile: 0
+threshold: 30
+lamda: 0.1745
+show: 1
+
+# icp parameters
+searchRadius: 0.20
+
+

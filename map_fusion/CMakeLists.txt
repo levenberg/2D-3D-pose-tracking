@@ -11,7 +11,6 @@ if (OPENMP_FOUND)
     set(CMAKE_C_FLAGS   "${CMAKE_C_FLAGS}   ${OpenMP_C_FLAGS}")
 endif()
 
-set(cv_bridge_DIR "/usr/local/share/cv_bridge/cmake")
 find_package(catkin REQUIRED COMPONENTS
     roscpp
     tf
@@ -33,7 +32,7 @@ include_directories(
 find_package(Ceres REQUIRED)
 include_directories(${CERES_INCLUDE_DIRS})
 
-find_package(OpenCV 3 REQUIRED)
+find_package(OpenCV REQUIRED)
 include_directories(${OpenCV_INCLUDE_DIRS})
 
 
@@ -49,6 +48,15 @@ include_directories(${Boost_INCLUDE_DIRS})
 #     )
 # add_dependencies(window_tracking_node afm_gencpp)
 # target_link_libraries(window_tracking_node ${catkin_LIBRARIES} ${OpenCV_LIBRARIES} ${CERES_LIBRARIES})
+
+add_executable(icp2d3d_node
+    src/tracking_node.cpp
+    src/estimator.cpp
+    src/line.cpp
+    src/CameraPoseVisualization.cpp
+    )
+add_dependencies(icp2d3d_node afm_gencpp)
+target_link_libraries(icp2d3d_node ${catkin_LIBRARIES} ${OpenCV_LIBRARIES} ${CERES_LIBRARIES})
 
 add_executable(fusion_node
     src/fusion_node.cpp

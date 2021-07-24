@@ -1,0 +1,21 @@
+<launch>
+
+<!-- corridors  nsh  smith-->
+    <arg name="data_path" default = "corridors" />
+    <arg name="config_file" default="$(find map_fusion)/config/cam360/cam360_0.yaml" />
+    <arg name="line3d_file" default="$(find map_fusion)/config/cam360/$(arg data_path)/line_3d.txt" />
+
+    <node name="icp2d3d_node" pkg="map_fusion" type="icp2d3d_node" output="screen">
+        <param name="cloud_name"  type="string" value="$(find map_fusion)/config/cam360/$(arg data_path)/pointcloud.ply"/>
+        <param name="config_file" type="string" value="$(arg config_file)" />
+        <param name="lines_map" type="string" value="$(arg line3d_file)" />
+        <!--remap from="~estimated_odometry" to="/vins_estimator/odometry" /> -->
+    </node>
+    
+    <node name="realsense_d435i_publisher" pkg="initialization_publisher" type="realsense_d435i_publisher" output="screen">
+        <param name="cloud_name"  type="string" value="$(find map_fusion)/config/realsense/$(arg data_path)/pt.ply"/>
+        <param name="config_file" type="string" value="$(arg config_file)" />
+        <remap from="~estimated_odometry" to="/vins_estimator/odometry" />
+    </node>
+    
+</launch>

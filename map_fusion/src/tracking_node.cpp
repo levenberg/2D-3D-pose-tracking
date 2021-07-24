@@ -358,7 +358,23 @@ void process3d3d()
             // printf(" point time %f \n", point_msg->header.stamp.toSec());
             // printf(" image time %f \n", image_msg->header.stamp.toSec());
             // printf(" pose time %f \n", pose_msg->header.stamp.toSec());
+            cv_bridge::CvImageConstPtr ptr;
+            if (image_msg->encoding == "8UC1") //gray img
+            {
+                sensor_msgs::Image img;
+                img.header = image_msg->header;
+                img.height = image_msg->height;
+                img.width = image_msg->width;
+                img.is_bigendian = image_msg->is_bigendian;
+                img.step = image_msg->step;
+                img.data = image_msg->data;
+                img.encoding = "mono8";
+                ptr = cv_bridge::toCvCopy(img, sensor_msgs::image_encodings::MONO8);
+            }
+            else //color img
+                ptr = cv_bridge::toCvCopy(image_msg, sensor_msgs::image_encodings::MONO8);
 
+            cv::Mat image = ptr->image;
             Vector3d vio_T = Vector3d(pose_msg->pose.pose.position.x,
                                       pose_msg->pose.pose.position.y,
                                       pose_msg->pose.pose.position.z);
@@ -377,7 +393,7 @@ void process3d3d()
                 points.push_back(pt_b);
             }
 
-            Estimator.processPoints(pose_msg->header.stamp.toSec(), vio_T, vio_R, points);
+            Estimator.processPoints(pose_msg->header.stamp.toSec(), vio_T, vio_R, image, points);
             pubGodometry(pose_msg->header);
             pubGpointcloud(pose_msg->header, points);
         }

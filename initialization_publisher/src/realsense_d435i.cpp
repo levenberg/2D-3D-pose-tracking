@@ -16,6 +16,8 @@
 #include <opencv2/opencv.hpp>
 #include <opencv2/core/eigen.hpp>
 #include "opencv2/core/utility.hpp"
+#include<opencv2/imgproc/types_c.h>
+#include <opencv2/highgui/highgui_c.h>
 #include <cv_bridge/cv_bridge.h>
 using namespace std;
 using namespace Eigen;
@@ -257,7 +259,7 @@ int main(int argc, char **argv)
             cv::Mat cv_rotation;
             cv::Mat cv_translation;
 
-            cv::solvePnP(model_points, capturePoint, camera_matrix, dist_coeffs, cv_rotation, cv_translation,false, CV_EPNP);
+            cv::solvePnP(model_points, capturePoint, camera_matrix, dist_coeffs, cv_rotation, cv_translation,false, SOLVEPNP_EPNP);
             cv::Mat cv_rot_mat;
             Rodrigues(cv_rotation, cv_rot_mat);
             Eigen::Vector3d trans;

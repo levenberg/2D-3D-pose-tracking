@@ -74,7 +74,7 @@ void pub3dmap(const nav_msgs::OdometryConstPtr &odom_msg)
         transform.block<3, 1>(0, 3) = baseTgt;
         pcl::transformPointCloud(*cloud, *transformed_cloud, transform);
         pcl_conversions::toPCL(odom_msg->header, transformed_cloud->header);
-        pub_3dmap.publish (transformed_cloud);
+        pub_3dmap.publish(transformed_cloud);
         map_pubed=true;
     }
 }
@@ -129,10 +129,10 @@ int main(int argc, char **argv)
     double m_p2 = static_cast<double>(ns["p2"]);
     cv::Mat dist_coeffs = (cv::Mat_<double>(4,1) << m_k1, m_k2, m_p1, m_p2);
     ns = fsSettings["projection_parameters"];
-    double m_fx = static_cast<double>(ns["fx"]);
-    double m_fy = static_cast<double>(ns["fy"]);
-    double m_cx = static_cast<double>(ns["cx"]);
-    double m_cy = static_cast<double>(ns["cy"]);
+    double m_fx = static_cast<double>(ns["gamma1"]);
+    double m_fy = static_cast<double>(ns["gamma2"]);
+    double m_cx = static_cast<double>(ns["u0"]);
+    double m_cy = static_cast<double>(ns["v0"]);
     cv::Mat camera_matrix = (cv::Mat_<double>(3,3) << m_fx, 0, m_cx, 0 , m_fy, m_cy, 0, 0, 1);
     //camera frame to body frame
     cv::Mat cv_c2b_R, cv_c2b_T;

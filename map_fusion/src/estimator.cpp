@@ -384,7 +384,7 @@ void estimator::sparseICP()
 		options.linear_solver_type = ceres::SPARSE_SCHUR;
 		options.minimizer_progress_to_stdout = false;
 		options.max_num_iterations = 30;
-		options.num_threads = 12;
+		options.num_threads = 8;
 		// options.logging_type = SILENT;
 		ceres::Solver::Summary summary;
 		ceres::Solve(options, &problem, &summary);

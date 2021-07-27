@@ -3,3 +3,4 @@ VINS-Mono/
 map_fusion/config/realsense/corridors/pointcloud.ply 
 map_fusion/config/realsense/bridge/pointcloud.ply
 map_fusion/config/realsense/smith/pointcloud.ply
+map_fusion/config/cam360/corridors/pointcloud.ply

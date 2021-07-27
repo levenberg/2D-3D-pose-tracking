@@ -1,0 +1,16 @@
+<launch>
+
+    <arg name="cloud_name"  default="$(find map_fusion)/config/cam360/corridors/pt.ply"/>
+    <arg name="config_file" default="$(find map_fusion)/config/cam360/cam360_0.yaml" />
+
+    <node name="cam360_publisher" pkg="initialization_publisher" type="cam360_publisher" output="screen">
+        <param name="cloud_name" type="string" value="$(arg cloud_name)" />
+        <param name="config_file" type="string" value="$(arg config_file)" />
+        <remap from="~estimated_odometry" to="/vins_estimator/odometry" />
+    </node> 
+
+<!--
+    <node pkg="rosbag" type="play" name="player" output="log" 
+    args="/home/tony-ws1/bag/ijrr_euroc_mav_dataset/$(arg sequence_name)/$(arg sequence_name).bag -r 2" />
+-->
+</launch>

@@ -12,8 +12,8 @@
         <!--remap from="~estimated_odometry" to="/vins_estimator/odometry" /> -->
     </node>
     
-    <node name="realsense_d435i_publisher" pkg="initialization_publisher" type="realsense_d435i_publisher" output="screen">
-        <param name="cloud_name"  type="string" value="$(find map_fusion)/config/realsense/$(arg data_path)/pt.ply"/>
+    <node name="cam360_publisher" pkg="initialization_publisher" type="cam360_publisher" output="screen">
+        <param name="cloud_name"  type="string" value="$(find map_fusion)/config/cam360/$(arg data_path)/pt.ply"/>
         <param name="config_file" type="string" value="$(arg config_file)" />
         <remap from="~estimated_odometry" to="/vins_estimator/odometry" />
     </node>

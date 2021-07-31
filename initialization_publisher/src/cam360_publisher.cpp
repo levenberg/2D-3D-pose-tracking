@@ -19,6 +19,10 @@
 #include<opencv2/imgproc/types_c.h>
 #include <opencv2/highgui/highgui_c.h>
 #include <cv_bridge/cv_bridge.h>
+#include "camodocal/camera_models/CameraFactory.h"
+#include "camodocal/camera_models/CataCamera.h"
+#include "camodocal/camera_models/PinholeCamera.h"
+
 using namespace std;
 using namespace Eigen;
 using namespace cv;
@@ -122,18 +126,8 @@ int main(int argc, char **argv)
     }
 
     fsSettings["image_topic"] >> IMAGE_TOPIC;  
-    cv::FileNode ns = fsSettings["distortion_parameters"];
-    double m_k1 = static_cast<double>(ns["k1"]);
-    double m_k2 = static_cast<double>(ns["k2"]);
-    double m_p1 = static_cast<double>(ns["p1"]);
-    double m_p2 = static_cast<double>(ns["p2"]);
-    cv::Mat dist_coeffs = (cv::Mat_<double>(4,1) << m_k1, m_k2, m_p1, m_p2);
-    ns = fsSettings["projection_parameters"];
-    double m_fx = static_cast<double>(ns["gamma1"]);
-    double m_fy = static_cast<double>(ns["gamma2"]);
-    double m_cx = static_cast<double>(ns["u0"]);
-    double m_cy = static_cast<double>(ns["v0"]);
-    cv::Mat camera_matrix = (cv::Mat_<double>(3,3) << m_fx, 0, m_cx, 0 , m_fy, m_cy, 0, 0, 1);
+    camodocal::CameraPtr m_camera;
+    m_camera = CameraFactory::instance()->generateCameraFromYamlFile(config_file);
     //camera frame to body frame
     cv::Mat cv_c2b_R, cv_c2b_T;
     fsSettings["extrinsicRotation"] >> cv_c2b_R;
@@ -247,7 +241,24 @@ int main(int argc, char **argv)
             cv::Mat cv_rotation;
             cv::Mat cv_translation;
 
-            cv::solvePnP(model_points, capturePoint, camera_matrix, dist_coeffs, cv_rotation, cv_translation,false, SOLVEPNP_EPNP);
+            // undistort 2D points
+            vector<Point2d> undist_Points;
+            int ROW=image.rows;
+            int COL=image.cols;
+            int FOCAL_LENGTH=460;
+            for (unsigned int i = 0; i < capturePoint.size(); i++)
+            {
+                Eigen::Vector2d a(capturePoint[i].x, capturePoint[i].y);
+                Eigen::Vector3d b;
+                m_camera->liftProjective(a, b);
+                double xx = b.x() / b.z() * FOCAL_LENGTH + COL / 2;
+                double yy = b.y() / b.z() * FOCAL_LENGTH + ROW / 2;
+                undist_Points.push_back(cv::Point2d(xx, yy));
+            }
+
+            cv::Mat dist_coeffs = (cv::Mat_<double>(4,1) << 0, 0, 0, 0);
+            cv::Mat camera_matrix = (cv::Mat_<double>(3,3) << FOCAL_LENGTH, 0, COL / 2, 0 , FOCAL_LENGTH, ROW / 2, 0, 0, 1);
+            cv::solvePnP(model_points, undist_Points, camera_matrix, dist_coeffs, cv_rotation, cv_translation,false, SOLVEPNP_EPNP);
             cv::Mat cv_rot_mat;
             Rodrigues(cv_rotation, cv_rot_mat);
             Eigen::Vector3d trans;
